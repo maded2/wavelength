@@ -15,8 +15,8 @@ type Topic struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	MessageCount  int        `json:"message_count"`
-	Messages      []Message  `json:"messages,omitempty"`
-	Document      string     `json:"document,omitempty"`
+	Messages      []Message  `json:"messages"`
+	Document      string     `json:"document"`
 }
 
 // Message represents a single exchange in a conversation.
