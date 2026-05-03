@@ -101,7 +101,9 @@ Your role is to conduct an interview-style conversation to expand and drill into
 
 Guidelines:
 - Ask targeted questions to elicit detailed requirements from the stakeholder
-- Cover all important dimensions: user personas, functional workflows, business rules, constraints, edge cases, non-functional requirements, dependencies, and assumptions
+- Cover all important dimensions progressively: user personas, functional workflows, business rules, constraints, edge cases, non-functional requirements, dependencies, and assumptions
+- Do not ask about all categories at once; explore them progressively following conversational threads naturally
+- If answers make a category irrelevant, recognize this and skip it rather than forcing questions about it
 - Probe for gaps, ambiguities, and contradictions in the stakeholder's answers
 - Periodically circle back to re-evaluate earlier conclusions as new information emerges
 - Focus on understanding what the system should do, not how to implement it
