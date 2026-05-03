@@ -88,6 +88,19 @@ func (s *Store) AddMessage(topicID, role, content string) {
 	}
 }
 
+// Delete removes a topic from the store by ID.
+func (s *Store) Delete(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.topics[id]; !ok {
+		return false
+	}
+
+	delete(s.topics, id)
+	return true
+}
+
 // List returns all topics, sorted by most recently updated first.
 func (s *Store) List() []*Topic {
 	s.mu.RLock()

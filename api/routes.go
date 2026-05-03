@@ -87,13 +87,15 @@ func SetupRoutes(app *fiber.App, store *topic.Store, client *llm.Client) {
 	})
 
 	app.Delete("/api/topics/:id", func(c *fiber.Ctx) error {
-		topic := store.Get(c.Params("id"))
+		topicID := c.Params("id")
+		topic := store.Get(topicID)
 		if topic == nil {
 			return c.Status(http.StatusNotFound).JSON(fiber.Map{
 				"message": "topic not found",
 			})
 		}
-		// Remove from store (we'll add proper delete to store later)
+
+		store.Delete(topicID)
 		return c.Status(http.StatusOK).JSON(fiber.Map{
 			"message": "topic deleted",
 		})
