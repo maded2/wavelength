@@ -211,13 +211,19 @@ func generateResponse(client *llm.Client, t *topic.Topic, userMessage string) (s
 		}
 	}
 
+	// Include the high-level requirement description in the prompt
+	description := t.Description
+	if description == "" {
+		description = "(no description provided)"
+	}
+
 	// For now, do a simple HTTP POST to the LLM endpoint with the conversation
-	prompt := fmt.Sprintf("Conversation context:\n%s\n\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", buf.String(), userMessage)
+	prompt := fmt.Sprintf("Topic: %s\nHigh-level requirement: %s\n\nConversation context:\n%s\n\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", t.Name, description, buf.String(), userMessage)
 
 	payload := map[string]interface{}{
 		"model": client.Model(),
 		"messages": []map[string]string{
-			{"role": "system", "content": t.Document}, // will be persona prompt
+			{"role": "system", "content": client.PersonaPrompt()},
 			{"role": "user", "content": prompt},
 		},
 	}
