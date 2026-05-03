@@ -103,6 +103,21 @@ func (s *Store) SetStatus(id, status string) bool {
 	return true
 }
 
+// SetDocument updates the requirement document for a topic.
+func (s *Store) SetDocument(id, document string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[id]
+	if !ok {
+		return false
+	}
+
+	topic.Document = document
+	topic.UpdatedAt = time.Now()
+	return true
+}
+
 // Delete removes a topic from the store by ID.
 func (s *Store) Delete(id string) bool {
 	s.mu.Lock()

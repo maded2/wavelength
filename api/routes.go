@@ -132,6 +132,31 @@ func SetupRoutes(app *fiber.App, store *topic.Store, client *llm.Client) {
 		return c.JSON(updated)
 	})
 
+	// Update topic requirement document
+	app.Patch("/api/topics/:id/document", func(c *fiber.Ctx) error {
+		topicID := c.Params("id")
+		topic := store.Get(topicID)
+		if topic == nil {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{
+				"message": "topic not found",
+			})
+		}
+
+		var req struct {
+			Document string `json:"document"`
+		}
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"message": "invalid request body",
+			})
+		}
+
+		store.SetDocument(topicID, req.Document)
+
+		updated := store.Get(topicID)
+		return c.JSON(updated)
+	})
+
 	// Submit message to topic conversation
 	app.Post("/api/topics/:id/messages", func(c *fiber.Ctx) error {
 		topicID := c.Params("id")
