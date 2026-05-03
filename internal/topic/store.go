@@ -1,6 +1,7 @@
 package topic
 
 import (
+	"sort"
 	"sync"
 	"time"
 )
@@ -87,7 +88,7 @@ func (s *Store) AddMessage(topicID, role, content string) {
 	}
 }
 
-// List returns all topics.
+// List returns all topics, sorted by most recently updated first.
 func (s *Store) List() []*Topic {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -96,5 +97,10 @@ func (s *Store) List() []*Topic {
 	for _, t := range s.topics {
 		result = append(result, t)
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
+
 	return result
 }
