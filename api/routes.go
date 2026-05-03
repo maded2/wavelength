@@ -43,6 +43,7 @@ func SetupRoutes(app *fiber.App, store *topic.Store, client *llm.Client) {
 		var req struct {
 			Name        string `json:"name"`
 			Description string `json:"description"`
+			Document    string `json:"document"`
 		}
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
@@ -73,6 +74,13 @@ func SetupRoutes(app *fiber.App, store *topic.Store, client *llm.Client) {
 
 		id := fmt.Sprintf("topic-%d", time.Now().UnixNano())
 		topic := store.Create(id, req.Name, req.Description)
+
+		// Set pre-existing document if provided
+		if req.Document != "" {
+			store.SetDocument(id, req.Document)
+			topic = store.Get(id)
+		}
+
 		return c.Status(http.StatusCreated).JSON(topic)
 	})
 
