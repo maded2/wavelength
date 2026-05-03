@@ -88,6 +88,21 @@ func (s *Store) AddMessage(topicID, role, content string) {
 	}
 }
 
+// SetStatus updates the status of a topic.
+func (s *Store) SetStatus(id, status string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[id]
+	if !ok {
+		return false
+	}
+
+	topic.Status = status
+	topic.UpdatedAt = time.Now()
+	return true
+}
+
 // Delete removes a topic from the store by ID.
 func (s *Store) Delete(id string) bool {
 	s.mu.Lock()

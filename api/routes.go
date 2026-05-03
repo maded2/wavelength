@@ -101,6 +101,37 @@ func SetupRoutes(app *fiber.App, store *topic.Store, client *llm.Client) {
 		})
 	})
 
+	// Update topic status (e.g., mark as completed or reopen)
+	app.Patch("/api/topics/:id", func(c *fiber.Ctx) error {
+		topicID := c.Params("id")
+		topic := store.Get(topicID)
+		if topic == nil {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{
+				"message": "topic not found",
+			})
+		}
+
+		var req struct {
+			Status string `json:"status"`
+		}
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"message": "invalid request body",
+			})
+		}
+
+		if req.Status == "" {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"message": "status is required",
+			})
+		}
+
+		store.SetStatus(topicID, req.Status)
+
+		updated := store.Get(topicID)
+		return c.JSON(updated)
+	})
+
 	// Submit message to topic conversation
 	app.Post("/api/topics/:id/messages", func(c *fiber.Ctx) error {
 		topicID := c.Params("id")
@@ -108,6 +139,13 @@ func SetupRoutes(app *fiber.App, store *topic.Store, client *llm.Client) {
 		if topic == nil {
 			return c.Status(http.StatusNotFound).JSON(fiber.Map{
 				"message": "topic not found",
+			})
+		}
+
+		// Block messages on completed topics — they must be reopened first
+		if topic.Status == "completed" {
+			return c.Status(http.StatusConflict).JSON(fiber.Map{
+				"message": "this topic is marked as complete. Please reopen it before adding new messages.",
 			})
 		}
 
