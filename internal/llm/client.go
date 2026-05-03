@@ -49,3 +49,23 @@ func (c *Client) CheckConnectivity(ctx context.Context) error {
 
 	return nil
 }
+
+// Model returns the configured LLM model name.
+func (c *Client) Model() string {
+	return c.cfg.LLM.Model
+}
+
+// Endpoint returns the configured LLM endpoint URL.
+func (c *Client) Endpoint() string {
+	return c.cfg.LLM.Endpoint
+}
+
+// APIKey returns the configured LLM API key.
+func (c *Client) APIKey() string {
+	return c.cfg.LLM.APIKey
+}
+
+// PersonaPrompt returns the configured persona system prompt.
+func (c *Client) PersonaPrompt() string {
+	return c.cfg.GetPersonaPrompt()
+}
