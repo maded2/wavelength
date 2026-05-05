@@ -150,6 +150,67 @@ func (s *FileStore) AddMessage(topicID, role, content string) {
 	}
 }
 
+// SetStatus updates the status of a topic and persists it to disk.
+func (s *FileStore) SetStatus(id, status string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[id]
+	if !ok {
+		return false
+	}
+
+	topic.Status = status
+	topic.UpdatedAt = time.Now()
+	_ = s.saveOne(id, topic)
+	return true
+}
+
+// SetDocument updates the requirement document for a topic and persists it to disk.
+func (s *FileStore) SetDocument(id, document string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[id]
+	if !ok {
+		return false
+	}
+
+	topic.Document = document
+	topic.UpdatedAt = time.Now()
+	_ = s.saveOne(id, topic)
+	return true
+}
+
+// Delete removes a topic from the store and deletes its file from disk.
+func (s *FileStore) Delete(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.topics[id]; !ok {
+		return false
+	}
+
+	delete(s.topics, id)
+	_ = os.Remove(s.topicFile(id))
+	return true
+}
+
+// saveOne writes a single topic to disk. Must be called while holding the write lock.
+func (s *FileStore) saveOne(id string, topic *Topic) error {
+	td := s.topicDir()
+	if err := os.MkdirAll(td, 0755); err != nil {
+		return fmt.Errorf("failed to create topics directory: %w", err)
+	}
+
+	data, err := json.MarshalIndent(topic, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal topic %s: %w", id, err)
+	}
+
+	return os.WriteFile(s.topicFile(id), data, 0644)
+}
+
 // List returns all topics, sorted by most recently updated first.
 func (s *FileStore) List() []*Topic {
 	s.mu.RLock()

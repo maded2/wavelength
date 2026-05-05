@@ -14,7 +14,7 @@ import (
 )
 
 // SetupRoutes registers all API routes on the given Fiber app.
-func SetupRoutes(app *fiber.App, store *topic.Store, client *llm.Client) {
+func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 	// Static landing page
 	app.Get("/", LandingPage)
 

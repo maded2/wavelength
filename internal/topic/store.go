@@ -26,6 +26,18 @@ type Message struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// TopicStore is the interface for topic storage operations.
+// Both in-memory (Store) and file-backed (FileStore) implementations satisfy it.
+type TopicStore interface {
+	Create(id, name, description string) *Topic
+	Get(id string) *Topic
+	List() []*Topic
+	AddMessage(topicID, role, content string)
+	SetStatus(id, status string) bool
+	SetDocument(id, document string) bool
+	Delete(id string) bool
+}
+
 // Store manages topics in memory.
 type Store struct {
 	mu     sync.RWMutex
