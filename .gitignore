@@ -4,9 +4,6 @@ wl
 # Data directory (file-based persistence)
 data/
 
-# Local config (contains API keys)
-config.json
-
 # Go test cache
 *.out
 

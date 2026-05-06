@@ -1,45 +1,221 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title id="page-title">Wavelength — Topic</title>
     <style>
+        /* ── Theme Variables ── */
+        [data-theme="light"] {
+            --bg:              #f5f5f5;
+            --bg-surface:      #ffffff;
+            --text:            #333333;
+            --text-muted:      #888888;
+            --text-heading:    #1a1a2e;
+            --border:          #e5e5e5;
+            --accent:          #4f46e5;
+            --accent-hover:    #4338ca;
+            --accent-muted:    rgba(79,70,229,0.15);
+            --input-bg:        #ffffff;
+            --input-border:    #d1d5db;
+            --btn-sec-bg:      #ffffff;
+            --btn-sec-text:    #333333;
+            --btn-sec-border:  #d1d5db;
+            --btn-sec-hover:   #f9fafb;
+            --danger:          #dc2626;
+            --danger-border:   #fca5a5;
+            --danger-hover:    #fef2f2;
+            --msg-user-bg:     #4f46e5;
+            --msg-user-text:   #ffffff;
+            --msg-asst-bg:     #ffffff;
+            --msg-asst-text:   #333333;
+            --msg-asst-border: #e5e5e5;
+            --badge-active-bg: #dbeafe;
+            --badge-active-text: #1d4ed8;
+            --badge-done-bg: #dcfce7;
+            --badge-done-text: #15803d;
+            --badge-inactive-bg: #f3f4f6;
+            --badge-inactive-text: #6b7280;
+        }
+
+        [data-theme="dark"] {
+            --bg:              #0f0f14;
+            --bg-surface:      #1a1a24;
+            --text:            #d4d4d8;
+            --text-muted:      #71717a;
+            --text-heading:    #f0f0f5;
+            --border:          #2e2e3a;
+            --accent:          #818cf8;
+            --accent-hover:    #6366f1;
+            --accent-muted:    rgba(129,140,248,0.2);
+            --input-bg:        #1e1e2a;
+            --input-border:    #3a3a4a;
+            --btn-sec-bg:      #1e1e2a;
+            --btn-sec-text:    #d4d4d8;
+            --btn-sec-border:  #3a3a4a;
+            --btn-sec-hover:   #2a2a3a;
+            --danger:          #f87171;
+            --danger-border:   #7f1d1d;
+            --danger-hover:    #1c1017;
+            --msg-user-bg:     #6366f1;
+            --msg-user-text:   #ffffff;
+            --msg-asst-bg:     #1e1e2a;
+            --msg-asst-text:   #d4d4d8;
+            --msg-asst-border: #3a3a4a;
+            --badge-active-bg: #1e3a5f;
+            --badge-active-text: #93c5fd;
+            --badge-done-bg: #14532d;
+            --badge-done-text: #86efac;
+            --badge-inactive-bg: #27272a;
+            --badge-inactive-text: #a1a1aa;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; height: 100vh; display: flex; flex-direction: column; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            transition: background 0.3s, color 0.3s;
+        }
 
-        .header { background: #fff; padding: 12px 20px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; gap: 12px; }
-        .header a { color: #4f46e5; text-decoration: none; font-size: 14px; }
+        .header {
+            background: var(--bg-surface);
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: background 0.3s, border-color 0.3s;
+        }
+        .header a { color: var(--accent); text-decoration: none; font-size: 14px; }
         .header a:hover { text-decoration: underline; }
-        .header h1 { font-size: 18px; color: #1a1a2e; flex: 1; }
+        .header h1 { font-size: 18px; color: var(--text-heading); flex: 1; }
         .status-badge { font-size: 12px; padding: 3px 10px; border-radius: 12px; }
-        .status-active { background: #dbeafe; color: #1d4ed8; }
-        .status-completed { background: #dcfce7; color: #15803d; }
-        .status-not-started { background: #f3f4f6; color: #6b7280; }
+        .status-active { background: var(--badge-active-bg); color: var(--badge-active-text); }
+        .status-completed { background: var(--badge-done-bg); color: var(--badge-done-text); }
+        .status-not-started { background: var(--badge-inactive-bg); color: var(--badge-inactive-text); }
 
-        .chat-area { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; max-width: 800px; margin: 0 auto; width: 100%; }
-        .message { max-width: 75%; padding: 12px 16px; border-radius: 12px; line-height: 1.5; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; }
-        .message.user { align-self: flex-end; background: #4f46e5; color: #fff; border-bottom-right-radius: 4px; }
-        .message.assistant { align-self: flex-start; background: #fff; color: #333; border: 1px solid #e5e5e5; border-bottom-left-radius: 4px; }
+        .theme-toggle {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: background 0.3s, border-color 0.3s;
+        }
+        .theme-toggle:hover { background: var(--btn-sec-hover); }
+
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .message {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .message.user {
+            align-self: flex-end;
+            background: var(--msg-user-bg);
+            color: var(--msg-user-text);
+            border-bottom-right-radius: 4px;
+        }
+        .message.assistant {
+            align-self: flex-start;
+            background: var(--msg-asst-bg);
+            color: var(--msg-asst-text);
+            border: 1px solid var(--msg-asst-border);
+            border-bottom-left-radius: 4px;
+        }
         .message .meta { font-size: 11px; opacity: 0.7; margin-top: 6px; }
-        .empty-chat { text-align: center; padding: 60px 20px; color: #888; }
+        .empty-chat { text-align: center; padding: 60px 20px; color: var(--text-muted); }
         .empty-chat p { margin-top: 8px; }
 
-        .input-area { background: #fff; border-top: 1px solid #e5e5e5; padding: 16px 20px; }
+        .input-area {
+            background: var(--bg-surface);
+            border-top: 1px solid var(--border);
+            padding: 16px 20px;
+            transition: background 0.3s, border-color 0.3s;
+        }
         .input-wrapper { max-width: 800px; margin: 0 auto; display: flex; gap: 10px; }
-        .input-wrapper textarea { flex: 1; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; font-family: inherit; resize: none; min-height: 44px; max-height: 150px; outline: none; line-height: 1.4; }
-        .input-wrapper textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79,70,229,0.15); }
-        .input-wrapper button { background: #4f46e5; color: #fff; border: none; padding: 0 20px; border-radius: 8px; font-size: 14px; cursor: pointer; white-space: nowrap; }
-        .input-wrapper button:hover { background: #4338ca; }
-        .input-wrapper button:disabled { background: #a5a6f6; cursor: not-allowed; }
+        .input-wrapper textarea {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid var(--input-border);
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            min-height: 44px;
+            max-height: 150px;
+            outline: none;
+            line-height: 1.4;
+            background: var(--input-bg);
+            color: var(--text);
+            transition: border-color 0.2s, background 0.3s, color 0.3s;
+        }
+        .input-wrapper textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-muted);
+        }
+        .input-wrapper button {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 0 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.2s;
+        }
+        .input-wrapper button:hover { background: var(--accent-hover); }
+        .input-wrapper button:disabled { background: var(--accent-muted); cursor: not-allowed; }
 
         .actions { max-width: 800px; margin: 0 auto; padding: 8px 20px; display: flex; gap: 8px; }
-        .actions button { background: #fff; color: #333; border: 1px solid #d1d5db; padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-        .actions button:hover { background: #f9fafb; border-color: #9ca3af; }
-        .actions button.danger { color: #dc2626; border-color: #fca5a5; }
-        .actions button.danger:hover { background: #fef2f2; }
+        .actions button {
+            background: var(--btn-sec-bg);
+            color: var(--btn-sec-text);
+            border: 1px solid var(--btn-sec-border);
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .actions button:hover { background: var(--btn-sec-hover); border-color: var(--accent); }
+        .actions button.danger { color: var(--danger); border-color: var(--danger-border); }
+        .actions button.danger:hover { background: var(--danger-hover); }
 
-        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px; vertical-align: middle; }
+        .spinner {
+            display: inline-block;
+            width: 14px; height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
@@ -48,6 +224,7 @@
         <a href="/">← Topics</a>
         <h1 id="topic-name">Loading...</h1>
         <span id="topic-status" class="status-badge status-not-started">not_started</span>
+        <button class="theme-toggle" id="theme-toggle" title="Toggle theme">☀️</button>
     </div>
 
     <div class="actions" id="actions-bar">
@@ -68,6 +245,27 @@
     </div>
 
     <script>
+        // ── Theme ──
+        (function() {
+            const stored = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const theme = stored || (prefersDark ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+            updateIcon(theme);
+
+            document.getElementById('theme-toggle').addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+                updateIcon(next);
+            });
+
+            function updateIcon(theme) {
+                document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+            }
+        })();
+
         const topicId = window.location.pathname.split('/').pop();
         let currentTopic = null;
 
