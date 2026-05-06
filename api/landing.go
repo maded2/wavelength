@@ -18,3 +18,12 @@ func LandingPage(c *fiber.Ctx) error {
 	}
 	return c.Type("html").Send(index)
 }
+
+// TopicPage serves the chat interface for a single topic.
+func TopicPage(c *fiber.Ctx) error {
+	page, err := staticFiles.ReadFile("static/topic.html")
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).SendString("Failed to load application")
+	}
+	return c.Type("html").Send(page)
+}

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="page-title">Wavelength — Topic</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; height: 100vh; display: flex; flex-direction: column; }
+
+        .header { background: #fff; padding: 12px 20px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; gap: 12px; }
+        .header a { color: #4f46e5; text-decoration: none; font-size: 14px; }
+        .header a:hover { text-decoration: underline; }
+        .header h1 { font-size: 18px; color: #1a1a2e; flex: 1; }
+        .status-badge { font-size: 12px; padding: 3px 10px; border-radius: 12px; }
+        .status-active { background: #dbeafe; color: #1d4ed8; }
+        .status-completed { background: #dcfce7; color: #15803d; }
+        .status-not-started { background: #f3f4f6; color: #6b7280; }
+
+        .chat-area { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; max-width: 800px; margin: 0 auto; width: 100%; }
+        .message { max-width: 75%; padding: 12px 16px; border-radius: 12px; line-height: 1.5; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; }
+        .message.user { align-self: flex-end; background: #4f46e5; color: #fff; border-bottom-right-radius: 4px; }
+        .message.assistant { align-self: flex-start; background: #fff; color: #333; border: 1px solid #e5e5e5; border-bottom-left-radius: 4px; }
+        .message .meta { font-size: 11px; opacity: 0.7; margin-top: 6px; }
+        .empty-chat { text-align: center; padding: 60px 20px; color: #888; }
+        .empty-chat p { margin-top: 8px; }
+
+        .input-area { background: #fff; border-top: 1px solid #e5e5e5; padding: 16px 20px; }
+        .input-wrapper { max-width: 800px; margin: 0 auto; display: flex; gap: 10px; }
+        .input-wrapper textarea { flex: 1; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; font-family: inherit; resize: none; min-height: 44px; max-height: 150px; outline: none; line-height: 1.4; }
+        .input-wrapper textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79,70,229,0.15); }
+        .input-wrapper button { background: #4f46e5; color: #fff; border: none; padding: 0 20px; border-radius: 8px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+        .input-wrapper button:hover { background: #4338ca; }
+        .input-wrapper button:disabled { background: #a5a6f6; cursor: not-allowed; }
+
+        .actions { max-width: 800px; margin: 0 auto; padding: 8px 20px; display: flex; gap: 8px; }
+        .actions button { background: #fff; color: #333; border: 1px solid #d1d5db; padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+        .actions button:hover { background: #f9fafb; border-color: #9ca3af; }
+        .actions button.danger { color: #dc2626; border-color: #fca5a5; }
+        .actions button.danger:hover { background: #fef2f2; }
+
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="/">← Topics</a>
+        <h1 id="topic-name">Loading...</h1>
+        <span id="topic-status" class="status-badge status-not-started">not_started</span>
+    </div>
+
+    <div class="actions" id="actions-bar">
+        <button id="btn-complete" onclick="setStatus('completed')">Complete</button>
+        <button id="btn-reopen" onclick="setStatus('active')">Reopen</button>
+        <button id="btn-delete" class="danger" onclick="deleteTopic()">Delete</button>
+    </div>
+
+    <div class="chat-area" id="chat-area">
+        <div class="empty-chat">Loading topic...</div>
+    </div>
+
+    <div class="input-area">
+        <div class="input-wrapper">
+            <textarea id="message-input" placeholder="Type your message..." rows="1"></textarea>
+            <button id="send-btn" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const topicId = window.location.pathname.split('/').pop();
+        let currentTopic = null;
+
+        // Auto-resize textarea
+        const textarea = document.getElementById('message-input');
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+        });
+        textarea.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        async function loadTopic() {
+            try {
+                const res = await fetch('/api/topics/' + topicId);
+                if (!res.ok) {
+                    document.getElementById('chat-area').innerHTML = '<div class="empty-chat"><p>Topic not found</p></div>';
+                    return;
+                }
+                currentTopic = await res.json();
+                document.getElementById('topic-name').textContent = currentTopic.name;
+                document.getElementById('page-title').textContent = 'Wavelength — ' + currentTopic.name;
+
+                const badge = document.getElementById('topic-status');
+                badge.textContent = currentTopic.status;
+                badge.className = 'status-badge status-' + currentTopic.status;
+
+                // Show/hide action buttons based on status
+                document.getElementById('btn-complete').style.display = currentTopic.status === 'completed' ? 'none' : '';
+                document.getElementById('btn-reopen').style.display = currentTopic.status !== 'completed' ? 'none' : '';
+
+                renderMessages(currentTopic.messages || []);
+            } catch (e) {
+                console.error('Failed to load topic:', e);
+                document.getElementById('chat-area').innerHTML = '<div class="empty-chat"><p>Failed to load topic</p></div>';
+            }
+        }
+
+        function renderMessages(messages) {
+            const area = document.getElementById('chat-area');
+            if (messages.length === 0) {
+                area.innerHTML = '<div class="empty-chat"><h3>No messages yet</h3><p>Start the conversation by sending a message below.</p></div>';
+                return;
+            }
+            area.innerHTML = messages.map(m => `
+                <div class="message ${m.role}">
+                    ${escapeHtml(m.content)}
+                    <div class="meta">${m.role} · ${formatTime(m.timestamp)}</div>
+                </div>
+            `).join('');
+            area.scrollTop = area.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('message-input');
+            const content = input.value.trim();
+            if (!content) return;
+
+            const btn = document.getElementById('send-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Sending...';
+            input.value = '';
+            input.style.height = 'auto';
+
+            try {
+                const res = await fetch('/api/topics/' + topicId + '/messages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    alert(data.message || 'Failed to send message');
+                } else if (data.success === false) {
+                    alert(data.error || 'LLM unavailable, but your message was saved.');
+                }
+
+                // Reload the topic to get updated messages
+                await loadTopic();
+            } catch (e) {
+                alert('Failed to send message: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Send';
+                input.focus();
+            }
+        }
+
+        async function setStatus(status) {
+            try {
+                const res = await fetch('/api/topics/' + topicId, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status })
+                });
+                if (res.ok) {
+                    await loadTopic();
+                } else {
+                    const err = await res.json();
+                    alert(err.message || 'Failed to update status');
+                }
+            } catch (e) {
+                alert('Failed to update status: ' + e.message);
+            }
+        }
+
+        async function deleteTopic() {
+            if (!confirm('Delete this topic and all its data? This cannot be undone.')) return;
+            try {
+                const res = await fetch('/api/topics/' + topicId, {
+                    method: 'DELETE'
+                });
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    const err = await res.json();
+                    alert(err.message || 'Failed to delete topic');
+                }
+            } catch (e) {
+                alert('Failed to delete topic: ' + e.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatTime(ts) {
+            if (!ts) return '';
+            const d = new Date(ts);
+            return d.toLocaleString();
+        }
+
+        loadTopic();
+    </script>
+</body>
+</html>

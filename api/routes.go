@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -17,6 +18,9 @@ import (
 func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 	// Static landing page
 	app.Get("/", LandingPage)
+
+	// Topic chat page (serves the UI, not JSON)
+	app.Get("/topics/:id", TopicPage)
 
 	// Health check
 	app.Get("/health", HealthHandler(client))
@@ -168,19 +172,6 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 	// Submit message to topic conversation
 	app.Post("/api/topics/:id/messages", func(c *fiber.Ctx) error {
 		topicID := c.Params("id")
-		topic := store.Get(topicID)
-		if topic == nil {
-			return c.Status(http.StatusNotFound).JSON(fiber.Map{
-				"message": "topic not found",
-			})
-		}
-
-		// Block messages on completed topics — they must be reopened first
-		if topic.Status == "completed" {
-			return c.Status(http.StatusConflict).JSON(fiber.Map{
-				"message": "this topic is marked as complete. Please reopen it before adding new messages.",
-			})
-		}
 
 		var req struct {
 			Content string `json:"content"`
@@ -197,8 +188,27 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 			})
 		}
 
+		// Check topic exists and is not completed
+		topic := store.Get(topicID)
+		if topic == nil {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{
+				"message": "topic not found",
+			})
+		}
+
+		// Block messages on completed topics — they must be reopened first
+		if topic.Status == "completed" {
+			return c.Status(http.StatusConflict).JSON(fiber.Map{
+				"message": "this topic is marked as complete. Please reopen it before adding new messages.",
+			})
+		}
+
 		// Always save the user's message first
 		store.AddMessage(topicID, "user", req.Content)
+
+		// Re-fetch topic so it includes the newly added user message
+		// (FileStore.Get returns a copy, so the old reference is stale)
+		topic = store.Get(topicID)
 
 		// Try to get AI agent response
 		assistantResponse, err := generateResponse(client, topic, req.Content)
@@ -231,17 +241,22 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 
 // generateResponse calls the LLM to generate a response based on the conversation history.
 func generateResponse(client *llm.Client, t *topic.Topic, userMessage string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	log.Printf("[LLM] === Request for topic %q ===", t.ID)
+
+	timeout := time.Duration(client.Timeout()) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	// Build conversation context
 	var buf bytes.Buffer
-	for _, msg := range t.Messages {
-		if msg.Role == "user" {
-			fmt.Fprintf(&buf, "User: %s\n", msg.Content)
-		} else {
-			fmt.Fprintf(&buf, "Assistant: %s\n", msg.Content)
+	log.Printf("[LLM] Building conversation context from %d messages", len(t.Messages))
+	for i, msg := range t.Messages {
+		preview := msg.Content
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
 		}
+		log.Printf("[LLM]   Message %d (%s): %s", i+1, msg.Role, preview)
+		fmt.Fprintf(&buf, "%s: %s\n", msg.Role, msg.Content)
 	}
 
 	// Include the high-level requirement description in the prompt
@@ -253,6 +268,8 @@ func generateResponse(client *llm.Client, t *topic.Topic, userMessage string) (s
 	// For now, do a simple HTTP POST to the LLM endpoint with the conversation
 	prompt := fmt.Sprintf("Topic: %s\nHigh-level requirement: %s\n\nConversation context:\n%s\n\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", t.Name, description, buf.String(), userMessage)
 
+	log.Printf("[LLM] Prompt (truncated): %.500q", prompt)
+
 	payload := map[string]interface{}{
 		"model": client.Model(),
 		"messages": []map[string]string{
@@ -263,51 +280,82 @@ func generateResponse(client *llm.Client, t *topic.Topic, userMessage string) (s
 
 	body, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[LLM] ERROR marshalling payload: %v", err)
 		return "", fmt.Errorf("failed to prepare LLM request: %v", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", client.Endpoint()+"/chat/completions", bytes.NewReader(body))
+	apiURL := client.APIURL()
+	log.Printf("[LLM] Sending POST to %s (body size: %d bytes)", apiURL, len(body))
+	log.Printf("[LLM] Model: %s, Timeout: %ds", client.Model(), client.Timeout())
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
 	if err != nil {
+		log.Printf("[LLM] ERROR creating HTTP request: %v", err)
 		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+client.APIKey())
 	req.Header.Set("Content-Type", "application/json")
 
-	httpClient := &http.Client{Timeout: 30 * time.Second}
+	httpClient := &http.Client{Timeout: timeout}
+	start := time.Now()
+
+	log.Printf("[LLM] Sending HTTP request to LLM...")
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		elapsed := time.Since(start)
+		log.Printf("[LLM] ERROR HTTP request failed after %v: %v", elapsed, err)
 		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
 	}
 	defer resp.Body.Close()
 
+	elapsed := time.Since(start)
+	log.Printf("[LLM] HTTP response received in %v: status=%d", elapsed, resp.StatusCode)
+
+	// Read response body for logging
+	var respBody bytes.Buffer
+	_, err = respBody.ReadFrom(resp.Body)
+	if err != nil {
+		log.Printf("[LLM] ERROR reading response body: %v", err)
+		return "", fmt.Errorf("failed to read LLM response: %v", err)
+	}
+	respBodyStr := respBody.String()
+	log.Printf("[LLM] Response body (truncated): %.1000q", respBodyStr)
+
 	if resp.StatusCode >= 400 {
+		log.Printf("[LLM] ERROR LLM returned status %d: %s", resp.StatusCode, respBodyStr)
 		return "", fmt.Errorf("LLM service error: status %d", resp.StatusCode)
 	}
 
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(&respBody).Decode(&result); err != nil {
+		log.Printf("[LLM] ERROR parsing JSON response: %v", err)
 		return "", fmt.Errorf("failed to parse LLM response: %v", err)
 	}
 
 	choices, ok := result["choices"].([]interface{})
 	if !ok || len(choices) == 0 {
+		log.Printf("[LLM] ERROR no choices in response: %#v", result)
 		return "", fmt.Errorf("LLM returned no response")
 	}
 
 	firstChoice, ok := choices[0].(map[string]interface{})
 	if !ok {
+		log.Printf("[LLM] ERROR invalid choices[0] type: %#v", choices[0])
 		return "", fmt.Errorf("invalid LLM response format")
 	}
 
 	message, ok := firstChoice["message"].(map[string]interface{})
 	if !ok {
+		log.Printf("[LLM] ERROR no message in first choice: %#v", firstChoice)
 		return "", fmt.Errorf("invalid LLM response format")
 	}
 
 	content, ok := message["content"].(string)
 	if !ok {
+		log.Printf("[LLM] ERROR no content in message: %#v", message)
 		return "", fmt.Errorf("LLM returned empty content")
 	}
 
+	log.Printf("[LLM] Success! Response length: %d chars", len(content))
 	return content, nil
 }

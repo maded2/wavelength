@@ -55,9 +55,30 @@ func (c *Client) Model() string {
 	return c.cfg.LLM.Model
 }
 
-// Endpoint returns the configured LLM endpoint URL.
+// Endpoint returns the configured LLM endpoint base URL.
 func (c *Client) Endpoint() string {
 	return c.cfg.LLM.Endpoint
+}
+
+// APIPath returns the configured API path (default "/chat/completions").
+func (c *Client) APIPath() string {
+	if c.cfg.LLM.Path != "" {
+		return c.cfg.LLM.Path
+	}
+	return "/chat/completions"
+}
+
+// APIURL returns the full URL for chat completions (endpoint + path).
+func (c *Client) APIURL() string {
+	return c.cfg.LLM.Endpoint + c.APIPath()
+}
+
+// Timeout returns the configured HTTP timeout in seconds (default 60).
+func (c *Client) Timeout() int {
+	if c.cfg.LLM.Timeout > 0 {
+		return c.cfg.LLM.Timeout
+	}
+	return 60
 }
 
 // APIKey returns the configured LLM API key.

@@ -79,13 +79,11 @@
                 const res = await fetch('/api/topics');
                 const topics = await res.json();
                 const list = document.getElementById('topics-list');
-                const empty = document.getElementById('empty-state');
 
                 if (topics.length === 0) {
-                    empty.style.display = 'block';
+                    list.innerHTML = '<div class="empty-state" id="empty-state"><p>No topics yet. Create your first topic to begin gathering requirements.</p></div>';
                     return;
                 }
-                empty.style.display = 'none';
                 list.innerHTML = topics.map(t => `
                     <div class="topic-item" onclick="window.location.href='/topics/${t.id}'">
                         <span class="topic-name">${escapeHtml(t.name)}</span>

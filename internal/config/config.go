@@ -28,6 +28,8 @@ type LLMConfig struct {
 	Endpoint    string  `json:"endpoint"`
 	APIKey      string  `json:"api_key"`
 	Temperature float64 `json:"temperature"`
+	Timeout     int     `json:"timeout"`       // HTTP request timeout in seconds (default 60)
+	Path        string  `json:"path"`          // API path appended to endpoint (default "/chat/completions")
 }
 
 // PersonaConfig holds the AI agent persona configuration.

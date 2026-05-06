@@ -33,7 +33,14 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 
 ### Configuration
 
-Create a JSON configuration file (e.g., `config.json`):
+Copy the example config and adjust for your LLM backend:
+
+```bash
+cp configs/config.json config.json
+# Edit config.json with your LLM endpoint, model, and API key
+```
+
+Example configuration:
 
 ```json
 {
@@ -45,7 +52,9 @@ Create a JSON configuration file (e.g., `config.json`):
     "model": "gpt-4",
     "endpoint": "https://api.openai.com/v1",
     "api_key": "your-api-key-here",
-    "temperature": 0.7
+    "temperature": 0.7,
+    "timeout": 120,
+    "path": "/chat/completions"
   },
   "persona": {
     "system_prompt": ""
@@ -54,19 +63,31 @@ Create a JSON configuration file (e.g., `config.json`):
 }
 ```
 
+| Field | Description |
+|---|---|
+| `llm.timeout` | HTTP request timeout in seconds (default: 60) |
+| `llm.path` | API path appended to endpoint (default: `/chat/completions`) |
+
 ### Running
 
 ```bash
-go run ./cmd/server --config config.json
+make run
 ```
 
-The application starts on the configured port (default: 3000). Open `http://localhost:3000` in your browser.
+This builds the binary and starts the server with `configs/config.json`. The application starts on the configured port (default: 3000). Open `http://localhost:3000` in your browser.
 
 ### Building
 
 ```bash
-go build -o wavelength ./cmd/server
-./wavelength --config config.json
+make build    # compiles to ./wl
+make run      # builds then runs
+make clean    # removes ./wl
+```
+
+You can also specify a custom config file:
+
+```bash
+./wl -config config.json
 ```
 
 ## API Endpoints
@@ -104,7 +125,8 @@ configs/            — Example configuration files
 ### Running Tests
 
 ```bash
-go test ./...
+make test     # runs all tests
+go test ./... # equivalent
 ```
 
 All tests use mocked LLM clients — no real API calls are made during testing.
