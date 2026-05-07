@@ -148,19 +148,27 @@ func TestTopicPersistence(t *testing.T) {
 		store.Create("topic-auto", "Auto Save", "Automatic persistence")
 		store.AddMessage("topic-auto", "user", "Test message")
 
-		// Save and verify file exists on disk
+		// Save and verify directory exists on disk
 		if err := store.SaveAll(); err != nil {
 			t.Fatalf("failed to save: %v", err)
 		}
 
-		// Verify files exist on disk
-		files, err := os.ReadDir(filepath.Join(dir, "topics"))
-		if err != nil {
-			t.Fatalf("expected topics directory to exist: %v", err)
+		// Verify topic directory exists on disk
+		topicDir := filepath.Join(dir, "topics", "topic-auto")
+		if _, err := os.Stat(topicDir); os.IsNotExist(err) {
+			t.Error("expected topic directory to be created on disk automatically")
 		}
 
-		if len(files) == 0 {
-			t.Error("expected topic files to be created on disk automatically")
+		// Verify meta.json exists
+		metaFile := filepath.Join(topicDir, "meta.json")
+		if _, err := os.Stat(metaFile); os.IsNotExist(err) {
+			t.Error("expected meta.json to exist")
+		}
+
+		// Verify messages.jsonl exists
+		msgFile := filepath.Join(topicDir, "messages.jsonl")
+		if _, err := os.Stat(msgFile); os.IsNotExist(err) {
+			t.Error("expected messages.jsonl to exist")
 		}
 	})
 

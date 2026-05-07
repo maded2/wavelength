@@ -1,16 +1,24 @@
 package topic
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
 // FileStore manages topics with file-based persistence.
+// Each topic is stored as a directory:
+//
+//	data/topics/<topic-id>/
+//	    meta.json      — topic metadata
+//	    messages.jsonl — conversation messages (one JSON per line)
+//	    document.md    — living requirement document (plain text)
 type FileStore struct {
 	mu      sync.RWMutex
 	topics  map[string]*Topic
@@ -25,70 +33,335 @@ func NewFileStore(dataDir string) *FileStore {
 	}
 }
 
-// topicDir returns the path to the topics subdirectory.
-func (s *FileStore) topicDir() string {
+// topicsRoot returns the path to the top-level topics directory.
+func (s *FileStore) topicsRoot() string {
 	return filepath.Join(s.dataDir, "topics")
 }
 
-// topicFile returns the file path for a given topic ID.
-func (s *FileStore) topicFile(id string) string {
-	return filepath.Join(s.topicDir(), id+".json")
+// topicPath returns the directory path for a given topic ID.
+func (s *FileStore) topicPath(id string) string {
+	return filepath.Join(s.topicsRoot(), id)
+}
+
+// metaFile returns the path to the topic's metadata JSON file.
+func (s *FileStore) metaFile(id string) string {
+	return filepath.Join(s.topicPath(id), "meta.json")
+}
+
+// messagesFile returns the path to the topic's messages JSONL file.
+func (s *FileStore) messagesFile(id string) string {
+	return filepath.Join(s.topicPath(id), "messages.jsonl")
+}
+
+// documentFile returns the path to the topic's requirement document file.
+func (s *FileStore) documentFile(id string) string {
+	return filepath.Join(s.topicPath(id), "document.md")
+}
+
+// topicMeta holds the serializable metadata for a topic (no messages or document).
+type topicMeta struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	MessageCount int     `json:"message_count"`
+}
+
+// topicMessageLine is the JSONL format for a single message.
+type topicMessageLine struct {
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // LoadAll reads all topics from disk into memory.
+// It handles both the new directory-per-topic format and the legacy single-file format.
 func (s *FileStore) LoadAll() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	td := s.topicDir()
-	if _, err := os.Stat(td); os.IsNotExist(err) {
+	root := s.topicsRoot()
+	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return nil // No topics directory yet
 	}
 
-	entries, err := os.ReadDir(td)
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return fmt.Errorf("failed to read topics directory: %w", err)
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
+		name := entry.Name()
+		entryPath := filepath.Join(root, name)
 
-		data, err := os.ReadFile(filepath.Join(td, entry.Name()))
-		if err != nil {
-			return fmt.Errorf("failed to read topic file %s: %w", entry.Name(), err)
+		if entry.IsDir() {
+			// New directory-per-topic format
+			if err := s.loadTopicDir(name, entryPath); err != nil {
+				return fmt.Errorf("failed to load topic %s: %w", name, err)
+			}
+		} else if strings.HasSuffix(name, ".json") {
+			// Legacy single-file format — migrate on the fly
+			id := strings.TrimSuffix(name, ".json")
+			if err := s.loadTopicLegacy(id, entryPath); err != nil {
+				return fmt.Errorf("failed to load legacy topic %s: %w", id, err)
+			}
 		}
-
-		var topic Topic
-		if err := json.Unmarshal(data, &topic); err != nil {
-			return fmt.Errorf("failed to parse topic file %s: %w", entry.Name(), err)
-		}
-
-		s.topics[topic.ID] = &topic
 	}
 
 	return nil
 }
 
-// SaveAll writes all topics to disk.
+// loadTopicDir loads a topic from its directory.
+func (s *FileStore) loadTopicDir(id, dirPath string) error {
+	var meta topicMeta
+
+	// Load metadata
+	metaData, err := os.ReadFile(filepath.Join(dirPath, "meta.json"))
+	if err != nil {
+		return fmt.Errorf("failed to read meta.json: %w", err)
+	}
+	if err := json.Unmarshal(metaData, &meta); err != nil {
+		return fmt.Errorf("failed to parse meta.json: %w", err)
+	}
+
+	// Load messages
+	messages, err := s.readMessagesFile(filepath.Join(dirPath, "messages.jsonl"))
+	if err != nil {
+		return fmt.Errorf("failed to read messages: %w", err)
+	}
+
+	// Load document (optional — file may not exist yet)
+	var document string
+	docData, err := os.ReadFile(filepath.Join(dirPath, "document.md"))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read document.md: %w", err)
+	}
+	if err == nil {
+		document = string(docData)
+	}
+
+	topic := &Topic{
+		ID:          meta.ID,
+		Name:        meta.Name,
+		Description: meta.Description,
+		Status:      meta.Status,
+		CreatedAt:   meta.CreatedAt,
+		UpdatedAt:   meta.UpdatedAt,
+		MessageCount: meta.MessageCount,
+		Messages:    messages,
+		Document:    document,
+	}
+
+	s.topics[id] = topic
+	return nil
+}
+
+// loadTopicLegacy loads a topic from the old single-file JSON format and migrates it.
+func (s *FileStore) loadTopicLegacy(id, filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read legacy topic file: %w", err)
+	}
+
+	var topic Topic
+	if err := json.Unmarshal(data, &topic); err != nil {
+		return fmt.Errorf("failed to parse legacy topic file: %w", err)
+	}
+
+	s.topics[id] = &topic
+
+	// Migrate to directory format in the background (non-blocking, best-effort)
+	go func() {
+		if err := s.migrateTopicToDir(&topic); err != nil {
+			// Log but don't fail — topic is still loaded in memory
+			// The migration will be retried on next SaveAll
+		}
+	}()
+
+	return nil
+}
+
+// migrateTopicToDir converts a legacy single-file topic to the directory format.
+func (s *FileStore) migrateTopicToDir(topic *Topic) error {
+	tPath := s.topicPath(topic.ID)
+	if err := os.MkdirAll(tPath, 0755); err != nil {
+		return fmt.Errorf("failed to create topic directory: %w", err)
+	}
+
+	// Write meta.json
+	meta := topicMeta{
+		ID:          topic.ID,
+		Name:        topic.Name,
+		Description: topic.Description,
+		Status:      topic.Status,
+		CreatedAt:   topic.CreatedAt,
+		UpdatedAt:   topic.UpdatedAt,
+		MessageCount: topic.MessageCount,
+	}
+	metaData, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal meta: %w", err)
+	}
+	if err := os.WriteFile(s.metaFile(topic.ID), metaData, 0644); err != nil {
+		return fmt.Errorf("failed to write meta.json: %w", err)
+	}
+
+	// Write messages.jsonl
+	if err := s.writeMessagesFile(s.messagesFile(topic.ID), topic.Messages); err != nil {
+		return fmt.Errorf("failed to write messages.jsonl: %w", err)
+	}
+
+	// Write document.md (only if non-empty)
+	if topic.Document != "" {
+		if err := os.WriteFile(s.documentFile(topic.ID), []byte(topic.Document), 0644); err != nil {
+			return fmt.Errorf("failed to write document.md: %w", err)
+		}
+	}
+
+	// Remove the legacy file
+	legacyFile := filepath.Join(s.topicsRoot(), topic.ID+".json")
+	_ = os.Remove(legacyFile)
+
+	return nil
+}
+
+// readMessagesFile reads a JSONL file and returns the messages.
+func (s *FileStore) readMessagesFile(path string) ([]Message, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []Message{}, nil // No messages file yet
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var messages []Message
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer for long messages
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var msg topicMessageLine
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			return nil, fmt.Errorf("failed to parse message line: %w: %s", err, line[:min(len(line), 200)])
+		}
+		messages = append(messages, Message{
+			Role:      msg.Role,
+			Content:   msg.Content,
+			Timestamp: msg.Timestamp,
+		})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scanner error: %w", err)
+	}
+
+	return messages, nil
+}
+
+// writeMessagesFile writes all messages to a JSONL file.
+func (s *FileStore) writeMessagesFile(path string, messages []Message) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := bufio.NewWriter(f)
+	for _, msg := range messages {
+		line, err := json.Marshal(topicMessageLine{
+			Role:      msg.Role,
+			Content:   msg.Content,
+			Timestamp: msg.Timestamp,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to marshal message: %w", err)
+		}
+		if _, err := w.Write(append(line, '\n')); err != nil {
+			return fmt.Errorf("failed to write message line: %w", err)
+		}
+	}
+	return w.Flush()
+}
+
+// appendMessageToFile appends a single message to the JSONL file.
+func (s *FileStore) appendMessageToFile(path string, msg Message) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	line, err := json.Marshal(topicMessageLine{
+		Role:      msg.Role,
+		Content:   msg.Content,
+		Timestamp: msg.Timestamp,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal message: %w", err)
+	}
+
+	_, err = f.Write(append(line, '\n'))
+	return err
+}
+
+// SaveAll writes all topics to disk in the directory-per-topic format.
 func (s *FileStore) SaveAll() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	td := s.topicDir()
-	if err := os.MkdirAll(td, 0755); err != nil {
+	root := s.topicsRoot()
+	if err := os.MkdirAll(root, 0755); err != nil {
 		return fmt.Errorf("failed to create topics directory: %w", err)
 	}
 
 	for id, topic := range s.topics {
-		data, err := json.MarshalIndent(topic, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal topic %s: %w", id, err)
+		if err := s.saveTopicDir(id, topic); err != nil {
+			return fmt.Errorf("failed to save topic %s: %w", id, err)
 		}
+	}
 
-		if err := os.WriteFile(s.topicFile(id), data, 0644); err != nil {
-			return fmt.Errorf("failed to write topic file %s: %w", id, err)
+	return nil
+}
+
+// saveTopicDir writes a topic to its directory.
+func (s *FileStore) saveTopicDir(id string, topic *Topic) error {
+	tPath := s.topicPath(id)
+	if err := os.MkdirAll(tPath, 0755); err != nil {
+		return fmt.Errorf("failed to create topic directory: %w", err)
+	}
+
+	// Write meta.json
+	meta := topicMeta{
+		ID:          topic.ID,
+		Name:        topic.Name,
+		Description: topic.Description,
+		Status:      topic.Status,
+		CreatedAt:   topic.CreatedAt,
+		UpdatedAt:   topic.UpdatedAt,
+		MessageCount: topic.MessageCount,
+	}
+	metaData, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal meta: %w", err)
+	}
+	if err := os.WriteFile(s.metaFile(id), metaData, 0644); err != nil {
+		return fmt.Errorf("failed to write meta.json: %w", err)
+	}
+
+	// Write messages.jsonl
+	if err := s.writeMessagesFile(s.messagesFile(id), topic.Messages); err != nil {
+		return fmt.Errorf("failed to write messages.jsonl: %w", err)
+	}
+
+	// Write document.md (only if non-empty)
+	if topic.Document != "" {
+		if err := os.WriteFile(s.documentFile(id), []byte(topic.Document), 0644); err != nil {
+			return fmt.Errorf("failed to write document.md: %w", err)
 		}
 	}
 
@@ -122,9 +395,19 @@ func (s *FileStore) Get(id string) *Topic {
 	if !ok {
 		return nil
 	}
-	// Return a copy to avoid race conditions
-	topicCopy := *topic
+	// Return a deep copy to avoid race conditions
+	topicCopy := deepCopyTopic(topic)
 	return &topicCopy
+}
+
+// deepCopyTopic creates a full deep copy of a topic.
+func deepCopyTopic(t *Topic) Topic {
+	copied := *t
+	if t.Messages != nil {
+		copied.Messages = make([]Message, len(t.Messages))
+		copy(copied.Messages, t.Messages)
+	}
+	return copied
 }
 
 // AddMessage appends a message to a topic's conversation history.
@@ -137,17 +420,21 @@ func (s *FileStore) AddMessage(topicID, role, content string) {
 		return
 	}
 
-	topic.Messages = append(topic.Messages, Message{
+	msg := Message{
 		Role:      role,
 		Content:   content,
 		Timestamp: time.Now(),
-	})
+	}
+	topic.Messages = append(topic.Messages, msg)
 	topic.MessageCount = len(topic.Messages)
 	topic.UpdatedAt = time.Now()
 
 	if topic.Status == "not_started" {
 		topic.Status = "active"
 	}
+
+	// Persist the new message to disk immediately (append to JSONL)
+	_ = s.persistTopicUpdate(topicID, topic)
 }
 
 // SetStatus updates the status of a topic and persists it to disk.
@@ -162,7 +449,7 @@ func (s *FileStore) SetStatus(id, status string) bool {
 
 	topic.Status = status
 	topic.UpdatedAt = time.Now()
-	_ = s.saveOne(id, topic)
+	_ = s.persistTopicUpdate(id, topic)
 	return true
 }
 
@@ -178,11 +465,46 @@ func (s *FileStore) SetDocument(id, document string) bool {
 
 	topic.Document = document
 	topic.UpdatedAt = time.Now()
-	_ = s.saveOne(id, topic)
+	_ = s.persistTopicUpdate(id, topic)
 	return true
 }
 
-// Delete removes a topic from the store and deletes its file from disk.
+// persistTopicUpdate writes the updated topic to disk. Must be called while holding the write lock.
+func (s *FileStore) persistTopicUpdate(id string, topic *Topic) error {
+	tPath := s.topicPath(id)
+	if err := os.MkdirAll(tPath, 0755); err != nil {
+		return fmt.Errorf("failed to create topic directory: %w", err)
+	}
+
+	// Write meta.json
+	meta := topicMeta{
+		ID:          topic.ID,
+		Name:        topic.Name,
+		Description: topic.Description,
+		Status:      topic.Status,
+		CreatedAt:   topic.CreatedAt,
+		UpdatedAt:   topic.UpdatedAt,
+		MessageCount: topic.MessageCount,
+	}
+	metaData, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal meta: %w", err)
+	}
+	if err := os.WriteFile(s.metaFile(id), metaData, 0644); err != nil {
+		return fmt.Errorf("failed to write meta.json: %w", err)
+	}
+
+	// Write document.md (only if non-empty)
+	if topic.Document != "" {
+		if err := os.WriteFile(s.documentFile(id), []byte(topic.Document), 0644); err != nil {
+			return fmt.Errorf("failed to write document.md: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Delete removes a topic from the store and deletes its directory from disk.
 func (s *FileStore) Delete(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,23 +514,10 @@ func (s *FileStore) Delete(id string) bool {
 	}
 
 	delete(s.topics, id)
-	_ = os.Remove(s.topicFile(id))
+	_ = os.RemoveAll(s.topicPath(id))
+	// Also remove any legacy file that might still exist
+	_ = os.Remove(filepath.Join(s.topicsRoot(), id+".json"))
 	return true
-}
-
-// saveOne writes a single topic to disk. Must be called while holding the write lock.
-func (s *FileStore) saveOne(id string, topic *Topic) error {
-	td := s.topicDir()
-	if err := os.MkdirAll(td, 0755); err != nil {
-		return fmt.Errorf("failed to create topics directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(topic, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal topic %s: %w", id, err)
-	}
-
-	return os.WriteFile(s.topicFile(id), data, 0644)
 }
 
 // List returns all topics, sorted by most recently updated first.
@@ -218,7 +527,7 @@ func (s *FileStore) List() []*Topic {
 
 	result := make([]*Topic, 0, len(s.topics))
 	for _, t := range s.topics {
-		topicCopy := *t
+		topicCopy := deepCopyTopic(t)
 		result = append(result, &topicCopy)
 	}
 
@@ -227,4 +536,12 @@ func (s *FileStore) List() []*Topic {
 	})
 
 	return result
+}
+
+// min returns the smaller of two integers.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

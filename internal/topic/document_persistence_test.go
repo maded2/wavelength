@@ -130,15 +130,19 @@ func TestDocumentPersistence(t *testing.T) {
 		topic := store.Create("topic-doc-persist-005", "Auto Persist", "Testing auto persist")
 		topic.Document = "# Auto Document\n\nPersisted automatically."
 
-		// Save and verify file exists on disk automatically
+		// Save and verify directory exists on disk automatically
 		if err := store.SaveAll(); err != nil {
 			t.Fatalf("failed to save: %v", err)
 		}
 
-		// Verify the file exists on disk
-		topicFile := filepath.Join(dir, "topics", "topic-doc-persist-005.json")
-		if _, err := os.Stat(topicFile); os.IsNotExist(err) {
-			t.Error("expected topic file to exist on disk automatically")
+		// Verify the topic directory and document.md exist on disk
+		topicDir := filepath.Join(dir, "topics", "topic-doc-persist-005")
+		if _, err := os.Stat(topicDir); os.IsNotExist(err) {
+			t.Error("expected topic directory to exist on disk automatically")
+		}
+		docFile := filepath.Join(topicDir, "document.md")
+		if _, err := os.Stat(docFile); os.IsNotExist(err) {
+			t.Error("expected document.md to exist on disk automatically")
 		}
 
 		// Verify we can load without any user action
