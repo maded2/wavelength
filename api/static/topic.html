@@ -411,44 +411,49 @@
         // ── Simple Markdown Renderer ──
         function renderMarkdown(md) {
             if (!md || !md.trim()) return '';
-            let html = md
-                // Code blocks (``` ... ```)
-                .replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
-                    return '<pre><code>' + escapeHtml(code.trim()) + '</code></pre>';
-                })
-                // Inline code
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
-                // Headers
-                .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-                .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-                .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-                // Bold & italic
-                .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                // Blockquotes
-                .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
-                // Horizontal rules
-                .replace(/^---$/gm, '<hr>')
-                // Unordered lists
-                .replace(/^- (.+)$/gm, '<li>$1</li>')
-                // Ordered lists
-                .replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+            try {
+                let html = md
+                    // Code blocks (``` ... ```)
+                    .replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
+                        return '<pre><code>' + escapeHtml(code.trim()) + '</code></pre>';
+                    })
+                    // Inline code
+                    .replace(/`([^`]+)`/g, '<code>$1</code>')
+                    // Headers
+                    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+                    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+                    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+                    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+                    // Bold & italic
+                    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                    // Blockquotes
+                    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+                    // Horizontal rules
+                    .replace(/^---$/gm, '<hr>')
+                    // Unordered lists
+                    .replace(/^- (.+)$/gm, '<li>$1</li>')
+                    // Ordered lists
+                    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
 
-            // Wrap consecutive <li> in <ul>
-            html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-            // Wrap remaining lines in <p>
-            html = html.split('\n').map(line => {
-                line = line.trim();
-                if (!line) return '';
-                if (line.startsWith('<h') || line.startsWith('<pre') || line.startsWith('<ul') ||
-                    line.startsWith('<li') || line.startsWith('<blockquote') || line.startsWith('<hr') ||
-                    line.startsWith('</ul') || line.startsWith('</blockquote')) return line;
-                return '<p>' + line + '</p>';
-            }).join('\n');
+                // Wrap consecutive <li> in <ul>
+                html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+                // Wrap remaining lines in <p>
+                html = html.split('\n').map(line => {
+                    line = line.trim();
+                    if (!line) return '';
+                    if (line.startsWith('<h') || line.startsWith('<pre') || line.startsWith('<ul') ||
+                        line.startsWith('<li') || line.startsWith('<blockquote') || line.startsWith('<hr') ||
+                        line.startsWith('</ul') || line.startsWith('</blockquote')) return line;
+                    return '<p>' + line + '</p>';
+                }).join('\n');
 
-            return html;
+                return html;
+            } catch (e) {
+                console.error('Markdown render error:', e);
+                return '<p>' + escapeHtml(md) + '</p>';
+            }
         }
 
         async function loadTopic() {
@@ -456,6 +461,7 @@
                 const res = await fetch('/api/topics/' + topicId);
                 if (!res.ok) {
                     document.getElementById('chat-area').innerHTML = '<div class="empty-chat"><p>Topic not found</p></div>';
+                    document.getElementById('doc-content').innerHTML = '<div class="doc-empty"><p>Topic not found</p></div>';
                     return;
                 }
                 currentTopic = await res.json();
@@ -470,21 +476,30 @@
                 document.getElementById('btn-complete').style.display = currentTopic.status === 'completed' ? 'none' : '';
                 document.getElementById('btn-reopen').style.display = currentTopic.status !== 'completed' ? 'none' : '';
 
-                // Render document
-                renderDocument(currentTopic.document || '');
+                // Render document (or show description as fallback)
+                const docContent = currentTopic.document || '';
+                console.log('[Topic] document field:', docContent ? 'present (' + docContent.length + ' chars)' : 'empty');
+                console.log('[Topic] description field:', currentTopic.description || 'empty');
+                renderDocument(docContent, currentTopic.description || '');
 
                 // Render messages
                 renderMessages(currentTopic.messages || []);
             } catch (e) {
                 console.error('Failed to load topic:', e);
                 document.getElementById('chat-area').innerHTML = '<div class="empty-chat"><p>Failed to load topic</p></div>';
+                document.getElementById('doc-content').innerHTML = '<div class="doc-empty"><p>Failed to load topic</p></div>';
             }
         }
 
-        function renderDocument(doc) {
+        function renderDocument(doc, description) {
             const el = document.getElementById('doc-content');
             if (!doc || !doc.trim()) {
-                el.innerHTML = '<div class="doc-empty"><p>No requirement document yet.</p><p>The document will be generated as the interview progresses.</p></div>';
+                // Show the topic description as placeholder content
+                if (description && description.trim()) {
+                    el.innerHTML = '<div class="doc-empty"><p><strong>Topic Description</strong></p><p>' + escapeHtml(description) + '</p><hr style="margin:1em 0;border:none;border-top:1px solid var(--border)"><p>Requirement document will be generated as the interview progresses.</p></div>';
+                } else {
+                    el.innerHTML = '<div class="doc-empty"><p>No requirement document yet.</p><p>The document will be generated as the interview progresses.</p></div>';
+                }
                 return;
             }
             el.innerHTML = renderMarkdown(doc);
