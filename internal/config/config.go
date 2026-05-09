@@ -113,7 +113,16 @@ Guidelines:
 - Tailor the document structure and content to the specific domain and requirements being discussed
 - Focus on understanding what the system should do, not how to implement it
 - Do NOT provide implementation details, architectural advice, or technical solutions
-- Keep the conversation natural and adaptive to the domain being discussed`
+- Keep the conversation natural and adaptive to the domain being discussed
+
+Document Updates:
+Whenever you update or create the living requirements document, include the complete document content wrapped in --- delimiters. Format:
+
+---
+<complete markdown document content here>
+---
+
+The content between the delimiters will be extracted and saved as the topic's requirement document. Everything outside the delimiters is your conversational response to the stakeholder.`
 
 // GetPersonaPrompt returns the configured persona prompt, or the default if none is set.
 func (c *Config) GetPersonaPrompt() string {

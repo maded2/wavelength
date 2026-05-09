@@ -1,6 +1,7 @@
 package topic
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -33,9 +34,17 @@ type TopicStore interface {
 	Get(id string) *Topic
 	List() []*Topic
 	AddMessage(topicID, role, content string)
+	ClearMessages(id string) bool
 	SetStatus(id, status string) bool
 	SetDocument(id, document string) bool
 	Delete(id string) bool
+}
+
+// blankDocument returns the initial markdown template for a new requirement document.
+// The template is pre-populated with the topic name and description so the AI agent
+// has a structured starting point to build upon during the interview.
+func blankDocument(name, description string) string {
+	return fmt.Sprintf("# Requirements: %s\n\n## Overview\n\n%s\n\n## Functional Requirements\n\n(To be elaborated during the interview)\n\n## Non-Functional Requirements\n\n(To be elaborated during the interview)\n\n## Stakeholders\n\n(To be identified during the interview)\n\n## Constraints\n\n(To be identified during the interview)\n\n## Open Questions\n\n(To be resolved during the interview)", name, description)
 }
 
 // Store manages topics in memory.
@@ -65,6 +74,7 @@ func (s *Store) Create(id, name, description string) *Topic {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Messages:    []Message{},
+		Document:    blankDocument(name, description),
 	}
 	s.topics[id] = topic
 	return topic
@@ -98,6 +108,22 @@ func (s *Store) AddMessage(topicID, role, content string) {
 	if topic.Status == "not_started" {
 		topic.Status = "active"
 	}
+}
+
+// ClearMessages removes all messages from a topic, resetting the conversation history.
+func (s *Store) ClearMessages(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[id]
+	if !ok {
+		return false
+	}
+
+	topic.Messages = []Message{}
+	topic.MessageCount = 0
+	topic.UpdatedAt = time.Now()
+	return true
 }
 
 // SetStatus updates the status of a topic.

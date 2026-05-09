@@ -2,7 +2,11 @@ act as a business analyst working for the IT department conducting a requirement
 
 
 
-update @requirement.txt with choices
+update @requirement.txt with choices — wrap the complete updated document in --- delimiters:
+
+---
+<complete markdown document content here>
+---
 
 
 

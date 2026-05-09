@@ -139,6 +139,33 @@
         }
         .theme-toggle:hover { background: var(--btn-sec-hover); }
 
+        /* ── Dropdown ── */
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 100;
+            min-width: 160px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .dropdown-menu.show { display: block; }
+        .dropdown-menu a {
+            display: block;
+            padding: 8px 14px;
+            color: var(--text);
+            text-decoration: none;
+            font-size: 13px;
+            transition: background 0.15s;
+        }
+        .dropdown-menu a:hover { background: var(--accent-muted); }
+
         /* ── Main Split Layout ── */
         .main {
             flex: 1;
@@ -258,6 +285,73 @@
             white-space: pre-wrap;
             word-wrap: break-word;
         }
+        .message.assistant {
+            white-space: normal;
+        }
+        .message.assistant h1, .message.assistant h2, .message.assistant h3, .message.assistant h4 {
+            color: var(--text-heading);
+            margin: 0.7em 0 0.35em;
+            line-height: 1.3;
+        }
+        .message.assistant h1 { font-size: 1.2em; }
+        .message.assistant h2 { font-size: 1.05em; }
+        .message.assistant h3 { font-size: 0.95em; }
+        .message.assistant h4 { font-size: 0.9em; }
+        .message.assistant p { margin: 0.4em 0; }
+        .message.assistant ul, .message.assistant ol { padding-left: 1.5em; margin: 0.3em 0; }
+        .message.assistant li { margin: 0.15em 0; }
+        .message.assistant code {
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.88em;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        }
+        .message.assistant pre {
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 10px 14px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 0.5em 0;
+            font-size: 0.88em;
+        }
+        .message.assistant pre code {
+            background: none;
+            padding: 0;
+        }
+        .message.assistant blockquote {
+            border-left: 3px solid var(--accent);
+            padding-left: 10px;
+            margin: 0.5em 0;
+            color: var(--text-muted);
+        }
+        .message.assistant strong { font-weight: 600; }
+        .message.assistant em { font-style: italic; }
+        .message.assistant hr {
+            border: none;
+            border-top: 1px solid var(--msg-asst-border);
+            margin: 0.7em 0;
+        }
+        .message.assistant table {
+            border-collapse: collapse;
+            margin: 0.5em 0;
+            font-size: 0.9em;
+            width: auto;
+        }
+        .message.assistant th, .message.assistant td {
+            border: 1px solid var(--msg-asst-border);
+            padding: 4px 10px;
+            text-align: left;
+        }
+        .message.assistant th {
+            background: var(--code-bg);
+            font-weight: 600;
+        }
+        .message.assistant input[type="checkbox"] {
+            margin-right: 4px;
+        }
         .message.user {
             align-self: flex-end;
             background: var(--msg-user-bg);
@@ -343,6 +437,15 @@
         <div class="header-actions">
             <button id="btn-complete" onclick="setStatus('completed')">Complete</button>
             <button id="btn-reopen" onclick="setStatus('active')">Reopen</button>
+            <button id="btn-reevaluate" onclick="reevaluate()" title="Clear conversation history and re-assess the requirement document">🔄 Reevaluate</button>
+            <div class="dropdown">
+                <button id="btn-download" onclick="toggleDropdown()" title="Download requirement document">📥 Download ▾</button>
+                <div id="download-menu" class="dropdown-menu">
+                    <a href="#" onclick="downloadDoc('markdown'); return false;">Markdown (.md)</a>
+                    <a href="#" onclick="downloadDoc('pdf'); return false;">PDF (.pdf)</a>
+                    <a href="#" onclick="downloadDoc('word'); return false;">Word (.docx)</a>
+                </div>
+            </div>
             <button id="btn-delete" class="danger" onclick="deleteTopic()">Delete</button>
         </div>
         <button class="theme-toggle" id="theme-toggle" title="Toggle theme">☀️</button>
@@ -412,40 +515,69 @@
         function renderMarkdown(md) {
             if (!md || !md.trim()) return '';
             try {
-                let html = md
-                    // Code blocks (``` ... ```)
-                    .replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
-                        return '<pre><code>' + escapeHtml(code.trim()) + '</code></pre>';
-                    })
-                    // Inline code
-                    .replace(/`([^`]+)`/g, '<code>$1</code>')
-                    // Headers
-                    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-                    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-                    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-                    // Bold & italic
-                    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                    // Blockquotes
-                    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
-                    // Horizontal rules
-                    .replace(/^---$/gm, '<hr>')
-                    // Unordered lists
-                    .replace(/^- (.+)$/gm, '<li>$1</li>')
-                    // Ordered lists
-                    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+                let html = md;
+
+                // Code blocks (``` ... ```) — must come first to protect code content
+                html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
+                    return '<pre><code>' + escapeHtml(code.trim()) + '</code></pre>';
+                });
+
+                // Tables (| ... |) — must come before inline formatting
+                html = html.replace(/((?:^\|.+\|\n?)+)/gm, function(tableBlock) {
+                    var rows = tableBlock.trim().split('\n').filter(function(r) { return r.trim(); });
+                    if (rows.length < 2) return tableBlock;
+                    var html = '<table>';
+                    rows.forEach(function(row, i) {
+                        // Skip separator rows (|---|---|)
+                        if (/^\|[\s\-:]+\|/.test(row)) return;
+                        var cells = row.split('|').slice(1, -1);
+                        var tag = i === 0 ? 'th' : 'td';
+                        html += '<tr>' + cells.map(function(c) { return '<' + tag + '>' + c.trim() + '</' + tag + '>'; }).join('') + '</tr>';
+                    });
+                    html += '</table>';
+                    return html;
+                });
+
+                // Inline code
+                html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+                // Headers
+                html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+                html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+                html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+                html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+                // Bold & italic
+                html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+                html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+                // Checkboxes
+                html = html.replace(/^\[x\]/gi, '<input type="checkbox" checked disabled>');
+                html = html.replace(/^\[ \]/g, '<input type="checkbox" disabled>');
+
+                // Blockquotes
+                html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+
+                // Horizontal rules
+                html = html.replace(/^---$/gm, '<hr>');
+
+                // Unordered lists
+                html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+                // Ordered lists
+                html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
 
                 // Wrap consecutive <li> in <ul>
                 html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+
                 // Wrap remaining lines in <p>
-                html = html.split('\n').map(line => {
+                html = html.split('\n').map(function(line) {
                     line = line.trim();
                     if (!line) return '';
                     if (line.startsWith('<h') || line.startsWith('<pre') || line.startsWith('<ul') ||
                         line.startsWith('<li') || line.startsWith('<blockquote') || line.startsWith('<hr') ||
-                        line.startsWith('</ul') || line.startsWith('</blockquote')) return line;
+                        line.startsWith('</ul') || line.startsWith('</blockquote') || line.startsWith('<table') ||
+                        line.startsWith('<tr') || line.startsWith('<th') || line.startsWith('<td')) return line;
                     return '<p>' + line + '</p>';
                 }).join('\n');
 
@@ -475,6 +607,7 @@
                 // Show/hide action buttons based on status
                 document.getElementById('btn-complete').style.display = currentTopic.status === 'completed' ? 'none' : '';
                 document.getElementById('btn-reopen').style.display = currentTopic.status !== 'completed' ? 'none' : '';
+                document.getElementById('btn-reevaluate').style.display = currentTopic.status === 'completed' ? 'none' : '';
 
                 // Render document (or show description as fallback)
                 const docContent = currentTopic.document || '';
@@ -513,7 +646,7 @@
             }
             area.innerHTML = messages.map(m => `
                 <div class="message ${m.role}">
-                    ${escapeHtml(m.content)}
+                    ${m.role === 'assistant' ? renderMarkdown(m.content) : escapeHtml(m.content)}
                     <div class="meta">${m.role} · ${formatTime(m.timestamp)}</div>
                 </div>
             `).join('');
@@ -532,22 +665,83 @@
             input.style.height = 'auto';
 
             try {
-                const res = await fetch('/api/topics/' + topicId + '/messages', {
+                // Use streaming endpoint
+                const res = await fetch('/api/topics/' + topicId + '/messages/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ content })
                 });
 
-                const data = await res.json();
-
                 if (!res.ok) {
-                    alert(data.message || 'Failed to send message');
-                } else if (data.success === false) {
-                    alert(data.error || 'LLM unavailable, but your message was saved.');
+                    const err = await res.json().catch(() => ({}));
+                    alert(err.message || 'Failed to send message');
+                    return;
                 }
 
-                // Reload the topic to get updated messages and document
+                // Create a streaming assistant message element
+                const area = document.getElementById('chat-area');
+                const emptyChat = area.querySelector('.empty-chat');
+                if (emptyChat) emptyChat.remove();
+
+                const msgEl = document.createElement('div');
+                msgEl.className = 'message assistant';
+                msgEl.innerHTML = '<div class="streaming-content"></div><div class="meta">assistant · ' + formatTime(new Date().toISOString()) + '</div>';
+                area.appendChild(msgEl);
+
+                const contentEl = msgEl.querySelector('.streaming-content');
+                let fullContent = '';
+
+                // Read SSE stream
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Process complete lines
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const event = JSON.parse(line);
+                            if (event.type === 'token') {
+                                fullContent += event.content;
+                                contentEl.innerHTML = renderMarkdown(fullContent);
+                                area.scrollTop = area.scrollHeight;
+                            } else if (event.type === 'error') {
+                                contentEl.innerHTML += '<p style="color:var(--danger);margin-top:8px;font-size:12px;">⚠️ ' + escapeHtml(event.message) + '</p>';
+                            }
+                        } catch (e) {
+                            // Ignore parse errors for partial lines
+                        }
+                    }
+                }
+
+                // Process any remaining buffer
+                if (buffer.trim()) {
+                    try {
+                        const event = JSON.parse(buffer);
+                        if (event.type === 'token') {
+                            fullContent += event.content;
+                            contentEl.innerHTML = renderMarkdown(fullContent);
+                        }
+                    } catch (e) {
+                        // Ignore
+                    }
+                }
+
+                // Replace streaming placeholder with final content
+                msgEl.querySelector('.streaming-content').outerHTML = contentEl.innerHTML;
+
+                // Reload topic to get persisted state
                 await loadTopic();
+
             } catch (e) {
                 alert('Failed to send message: ' + e.message);
             } finally {
@@ -572,6 +766,38 @@
                 }
             } catch (e) {
                 alert('Failed to update status: ' + e.message);
+            }
+        }
+
+        async function reevaluate() {
+            if (!confirm('Re-evaluate will clear the entire conversation history and ask the AI to re-assess the requirement document from scratch. Continue?')) return;
+
+            const btn = document.getElementById('send-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Re-evaluating...';
+
+            try {
+                const res = await fetch('/api/topics/' + topicId + '/messages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: '/reevaluate' })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    alert(data.message || 'Failed to re-evaluate');
+                } else if (data.success === false) {
+                    alert(data.error || 'Re-evaluation failed.');
+                } else {
+                    // Reload the topic to get updated messages and document
+                    await loadTopic();
+                }
+            } catch (e) {
+                alert('Failed to re-evaluate: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Send';
             }
         }
 
@@ -602,6 +828,26 @@
             if (!ts) return '';
             const d = new Date(ts);
             return d.toLocaleString();
+        }
+
+        // ── Download Dropdown ──
+        function toggleDropdown() {
+            const menu = document.getElementById('download-menu');
+            menu.classList.toggle('show');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            const dropdown = document.querySelector('.dropdown');
+            if (dropdown && !dropdown.contains(e.target)) {
+                document.getElementById('download-menu').classList.remove('show');
+            }
+        });
+
+        function downloadDoc(format) {
+            const menu = document.getElementById('download-menu');
+            menu.classList.remove('show');
+            window.location.href = '/api/topics/' + topicId + '/document/download?format=' + format;
         }
 
         loadTopic();

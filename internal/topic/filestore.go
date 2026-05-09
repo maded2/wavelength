@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 // FileStore manages topics with file-based persistence.
@@ -19,10 +21,16 @@ import (
 //	    meta.json      — topic metadata
 //	    messages.jsonl — conversation messages (one JSON per line)
 //	    document.md    — living requirement document (plain text)
+//
+// File locking ensures concurrent access safety:
+// - A global lock file protects LoadAll and SaveAll operations
+// - Per-topic locks protect individual topic reads/writes
+// - Atomic writes (write-to-temp + rename) prevent corruption on crash
 type FileStore struct {
 	mu      sync.RWMutex
 	topics  map[string]*Topic
 	dataDir string
+	lock    *flock.Flock // Global lock for data directory operations
 }
 
 // NewFileStore creates a new file-backed topic store.
@@ -30,7 +38,92 @@ func NewFileStore(dataDir string) *FileStore {
 	return &FileStore{
 		topics:  make(map[string]*Topic),
 		dataDir: dataDir,
+		lock:    flock.New(filepath.Join(dataDir, ".data.lock")),
 	}
+}
+
+// lockData acquires the global data directory lock.
+func (s *FileStore) lockData() error {
+	const timeout = 10 * time.Second
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = s.lock.Lock()
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("timeout acquiring data directory lock after %v", timeout)
+	}
+}
+
+// unlockData releases the global data directory lock.
+func (s *FileStore) unlockData() {
+	_ = s.lock.Unlock()
+}
+
+// topicLockFile returns the path to a per-topic lock file.
+func (s *FileStore) topicLockFile(id string) string {
+	return filepath.Join(s.topicPath(id), ".topic.lock")
+}
+
+// lockTopic acquires a per-topic lock for safe concurrent access.
+func (s *FileStore) lockTopic(id string) (*flock.Flock, error) {
+	tPath := s.topicPath(id)
+	if err := os.MkdirAll(tPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create topic directory for lock: %w", err)
+	}
+
+	topicLock := flock.New(s.topicLockFile(id))
+	const timeout = 5 * time.Second
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = topicLock.Lock()
+	}()
+
+	select {
+	case <-done:
+		return topicLock, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("timeout acquiring topic lock for %q after %v", id, timeout)
+	}
+}
+
+// atomicWriteFile writes data to a temp file then atomically renames it to the target path.
+// This prevents corruption if the process crashes mid-write.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory for atomic write: %w", err)
+	}
+
+	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpName := tmpFile.Name()
+
+	_, err = tmpFile.Write(data)
+	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to write to temp file: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to rename temp file to target: %w", err)
+	}
+
+	return nil
 }
 
 // topicsRoot returns the path to the top-level topics directory.
@@ -78,7 +171,13 @@ type topicMessageLine struct {
 
 // LoadAll reads all topics from disk into memory.
 // It handles both the new directory-per-topic format and the legacy single-file format.
+// Acquires a global lock to prevent concurrent reads during startup.
 func (s *FileStore) LoadAll() error {
+	if err := s.lockData(); err != nil {
+		return fmt.Errorf("failed to acquire data lock: %w", err)
+	}
+	defer s.unlockData()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -310,7 +409,13 @@ func (s *FileStore) appendMessageToFile(path string, msg Message) error {
 }
 
 // SaveAll writes all topics to disk in the directory-per-topic format.
+// Acquires a global lock to prevent concurrent saves.
 func (s *FileStore) SaveAll() error {
+	if err := s.lockData(); err != nil {
+		return fmt.Errorf("failed to acquire data lock: %w", err)
+	}
+	defer s.unlockData()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -328,14 +433,14 @@ func (s *FileStore) SaveAll() error {
 	return nil
 }
 
-// saveTopicDir writes a topic to its directory.
+// saveTopicDir writes a topic to its directory using atomic writes.
 func (s *FileStore) saveTopicDir(id string, topic *Topic) error {
 	tPath := s.topicPath(id)
 	if err := os.MkdirAll(tPath, 0755); err != nil {
 		return fmt.Errorf("failed to create topic directory: %w", err)
 	}
 
-	// Write meta.json
+	// Write meta.json atomically
 	meta := topicMeta{
 		ID:          topic.ID,
 		Name:        topic.Name,
@@ -349,23 +454,44 @@ func (s *FileStore) saveTopicDir(id string, topic *Topic) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal meta: %w", err)
 	}
-	if err := os.WriteFile(s.metaFile(id), metaData, 0644); err != nil {
+	if err := atomicWriteFile(s.metaFile(id), metaData, 0644); err != nil {
 		return fmt.Errorf("failed to write meta.json: %w", err)
 	}
 
-	// Write messages.jsonl
-	if err := s.writeMessagesFile(s.messagesFile(id), topic.Messages); err != nil {
+	// Write messages.jsonl atomically
+	msgData, err := s.messagesToJSONL(topic.Messages)
+	if err != nil {
+		return fmt.Errorf("failed to marshal messages: %w", err)
+	}
+	if err := atomicWriteFile(s.messagesFile(id), msgData, 0644); err != nil {
 		return fmt.Errorf("failed to write messages.jsonl: %w", err)
 	}
 
-	// Write document.md (only if non-empty)
+	// Write document.md atomically (only if non-empty)
 	if topic.Document != "" {
-		if err := os.WriteFile(s.documentFile(id), []byte(topic.Document), 0644); err != nil {
+		if err := atomicWriteFile(s.documentFile(id), []byte(topic.Document), 0644); err != nil {
 			return fmt.Errorf("failed to write document.md: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// messagesToJSONL serializes messages to JSONL format.
+func (s *FileStore) messagesToJSONL(messages []Message) ([]byte, error) {
+	var buf strings.Builder
+	for _, msg := range messages {
+		line, err := json.Marshal(topicMessageLine{
+			Role:      msg.Role,
+			Content:   msg.Content,
+			Timestamp: msg.Timestamp,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal message: %w", err)
+		}
+		buf.Write(append(line, '\n'))
+	}
+	return []byte(buf.String()), nil
 }
 
 // Create adds a new topic to the store.
@@ -382,6 +508,7 @@ func (s *FileStore) Create(id, name, description string) *Topic {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Messages:    []Message{},
+		Document:    blankDocument(name, description),
 	}
 	s.topics[id] = topic
 	return topic
@@ -435,6 +562,26 @@ func (s *FileStore) AddMessage(topicID, role, content string) {
 
 	// Persist the new message to disk immediately (append to JSONL)
 	_ = s.persistTopicUpdate(topicID, topic)
+}
+
+// ClearMessages removes all messages from a topic, resetting the conversation history.
+func (s *FileStore) ClearMessages(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[id]
+	if !ok {
+		return false
+	}
+
+	topic.Messages = []Message{}
+	topic.MessageCount = 0
+	topic.UpdatedAt = time.Now()
+
+	// Persist: rewrite messages.jsonl as empty
+	_ = s.writeMessagesFile(s.messagesFile(id), []Message{})
+	_ = s.persistTopicUpdate(id, topic)
+	return true
 }
 
 // SetStatus updates the status of a topic and persists it to disk.

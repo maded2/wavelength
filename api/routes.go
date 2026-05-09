@@ -1,15 +1,19 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"wavelength/internal/export"
 	"wavelength/internal/llm"
 	"wavelength/internal/topic"
 )
@@ -169,7 +173,44 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 		return c.JSON(updated)
 	})
 
-	// Submit message to topic conversation
+	// Download topic requirement document in various formats
+	app.Get("/api/topics/:id/document/download", func(c *fiber.Ctx) error {
+		topicID := c.Params("id")
+		topic := store.Get(topicID)
+		if topic == nil {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{
+				"message": "topic not found",
+			})
+		}
+
+		// Default to markdown, accept ?format=pdf or ?format=word
+		format := export.Format(strings.ToLower(c.Query("format", "markdown")))
+
+		exp := export.New(topic.Document)
+		data, mimeType, ext, err := exp.Export(format)
+		if err != nil {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"message": err.Error(),
+			})
+		}
+
+		filename := strings.ReplaceAll(topic.Name, " ", "_")
+		// Sanitize filename
+		filename = strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+				return r
+			}
+			return '_'
+		}, filename)
+
+		// Trigger browser file download with proper headers
+		c.Set("Content-Type", mimeType)
+		c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s%s"`, filename, ext))
+		c.Set("Content-Length", fmt.Sprintf("%d", len(data)))
+		return c.Send(data)
+	})
+
+	// Submit message to topic conversation (non-streaming, legacy)
 	app.Post("/api/topics/:id/messages", func(c *fiber.Ctx) error {
 		topicID := c.Params("id")
 
@@ -203,6 +244,11 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 			})
 		}
 
+		// Handle /reevaluate command: clear history and re-assess the document
+		if strings.TrimSpace(req.Content) == "/reevaluate" {
+			return handleReevaluate(c, store, client, topicID, topic)
+		}
+
 		// Always save the user's message first
 		store.AddMessage(topicID, "user", req.Content)
 
@@ -225,21 +271,462 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 			})
 		}
 
-		// Save assistant response
-		store.AddMessage(topicID, "assistant", assistantResponse)
+		// Extract any embedded requirements document from the LLM response
+		conversationalPart, extractedDoc := extractDocument(assistantResponse)
+
+		// If a document was extracted, update the topic's requirement document
+		documentUpdated := false
+		if extractedDoc != "" {
+			if store.SetDocument(topicID, extractedDoc) {
+				documentUpdated = true
+				log.Printf("[DOC] Updated requirement document for topic %q (%d bytes)", topicID, len(extractedDoc))
+			}
+		}
+
+		// Save assistant response (the conversational portion)
+		store.AddMessage(topicID, "assistant", conversationalPart)
 
 		return c.Status(http.StatusOK).JSON(fiber.Map{
-			"success": true,
-			"message": fiber.Map{
+			"success":         true,
+			"message":         fiber.Map{
 				"role":      "assistant",
-				"content":   assistantResponse,
+				"content":   conversationalPart,
 				"timestamp": time.Now(),
 			},
+			"document_updated": documentUpdated,
 		})
+	})
+
+	// Streaming message endpoint — returns SSE stream of tokens
+	app.Post("/api/topics/:id/messages/stream", func(c *fiber.Ctx) error {
+		topicID := c.Params("id")
+
+		var req struct {
+			Content string `json:"content"`
+		}
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"message": "invalid request body",
+			})
+		}
+
+		if req.Content == "" {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"message": "message content is required",
+			})
+		}
+
+		// Check topic exists and is not completed
+		topic := store.Get(topicID)
+		if topic == nil {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{
+				"message": "topic not found",
+			})
+		}
+
+		if topic.Status == "completed" {
+			return c.Status(http.StatusConflict).JSON(fiber.Map{
+				"message": "this topic is marked as complete. Please reopen it before adding new messages.",
+			})
+		}
+
+		// Handle /reevaluate command — use non-streaming path
+		if strings.TrimSpace(req.Content) == "/reevaluate" {
+			return handleReevaluate(c, store, client, topicID, topic)
+		}
+
+		// Save user's message first
+		store.AddMessage(topicID, "user", req.Content)
+
+		// Re-fetch topic with user message included
+		topic = store.Get(topicID)
+
+		// Set SSE headers
+		c.Context().SetContentType("text/event-stream")
+		c.Set("Cache-Control", "no-cache")
+		c.Set("Connection", "keep-alive")
+		c.Set("X-Accel-Buffering", "no")
+
+		// Build conversation messages for streaming
+		description := topic.Description
+		if description == "" {
+			description = "(no description provided)"
+		}
+
+		prompt := fmt.Sprintf("Topic: %s\nHigh-level requirement: %s\n\nConversation context:\n", topic.Name, description)
+		for _, msg := range topic.Messages {
+			prompt += fmt.Sprintf("%s: %s\n", msg.Role, msg.Content)
+		}
+		prompt += fmt.Sprintf("\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", req.Content)
+
+		// Build messages array for streaming
+		messages := make([]llm.Message, 0, len(topic.Messages))
+		for _, msg := range topic.Messages {
+			messages = append(messages, llm.Message{Role: msg.Role, Content: msg.Content})
+		}
+		messages = append(messages, llm.Message{Role: "user", Content: prompt})
+
+		// Create a pipe to capture the full response for document extraction
+		pr, pw := io.Pipe()
+
+		// Start streaming to client in a goroutine
+		go func() {
+			defer pw.Close()
+
+			// Send start event
+			startEvent := map[string]interface{}{
+				"type": "start",
+			}
+			json.NewEncoder(pw).Encode(startEvent)
+
+			// Stream LLM response
+			streamErr := client.StreamResponse(c.Context(), pw, client.PersonaPrompt(), messages)
+			if streamErr != nil {
+				errEvent := map[string]interface{}{
+					"type":    "error",
+					"message": "The AI agent is temporarily unavailable. Your message has been saved.",
+				}
+				json.NewEncoder(pw).Encode(errEvent)
+			}
+
+			// Send done event
+			doneEvent := map[string]interface{}{
+				"type": "done",
+			}
+			json.NewEncoder(pw).Encode(doneEvent)
+		}()
+
+		// Read from pipe to capture full response for document extraction
+		go func() {
+			var fullResponse strings.Builder
+			buf := make([]byte, 4096)
+			for {
+				n, readErr := pr.Read(buf)
+				if n > 0 {
+					fullResponse.Write(buf[:n])
+				}
+				if readErr != nil {
+					// Stream ended
+					break
+				}
+			}
+
+			// Parse tokens from captured response to reconstruct full assistant message
+			responseText := fullResponse.String()
+			var tokens []string
+			scanner := bufio.NewScanner(strings.NewReader(responseText))
+			for scanner.Scan() {
+				line := scanner.Text()
+				if line == "" {
+					continue
+				}
+				var event map[string]interface{}
+				if err := json.Unmarshal([]byte(line), &event); err != nil {
+					continue
+				}
+				if eventType, ok := event["type"].(string); ok && eventType == "token" {
+					if content, ok := event["content"].(string); ok {
+						tokens = append(tokens, content)
+					}
+				}
+			}
+
+			assistantResponse := strings.Join(tokens, "")
+			if assistantResponse == "" {
+				return
+			}
+
+			// Extract any embedded requirements document
+			conversationalPart, extractedDoc := extractDocument(assistantResponse)
+
+			// Update document if extracted
+			if extractedDoc != "" {
+				if store.SetDocument(topicID, extractedDoc) {
+					log.Printf("[DOC] Updated requirement document for topic %q (%d bytes)", topicID, len(extractedDoc))
+				}
+			}
+
+			// Save assistant response
+			store.AddMessage(topicID, "assistant", conversationalPart)
+		}()
+
+		// Stream the pipe to the HTTP response
+		return c.SendStream(pr)
 	})
 }
 
+// handleReevaluate clears the conversation history and asks the LLM to re-assess
+// the current requirement document from scratch.
+func handleReevaluate(c *fiber.Ctx, store topic.TopicStore, client *llm.Client, topicID string, topic *topic.Topic) error {
+	log.Printf("[REEVAL] Re-evaluating topic %q — clearing %d messages", topicID, len(topic.Messages))
+
+	// Clear all conversation history
+	store.ClearMessages(topicID)
+
+	// Build a re-evaluation prompt using only the topic name, description, and current document
+	description := topic.Description
+	if description == "" {
+		description = "(no description provided)"
+	}
+
+	document := topic.Document
+	if document == "" {
+		document = "(no document yet)"
+	}
+
+	reevalPrompt := fmt.Sprintf(
+		`You are asked to re-evaluate the requirement document for this topic from scratch.
+
+Topic: %s
+High-level requirement: %s
+
+Current requirement document:
+
+%s
+
+Please review the document critically and:
+1. Identify any gaps, inconsistencies, or missing sections
+2. Suggest improvements to the structure and content
+3. Provide an updated version of the document wrapped in --- delimiters if changes are needed
+
+Remember to maintain the document in markdown format and wrap any updated document in --- delimiters.`,
+		topic.Name, description, document,
+	)
+
+	// Send re-evaluation prompt to the LLM
+	assistantResponse, err := generateReevaluateResponse(client, topic, reevalPrompt)
+	if err != nil {
+		return c.Status(http.StatusOK).JSON(fiber.Map{
+			"success": false,
+			"error":   "The AI agent is temporarily unavailable. Please try again later.",
+			"message": fiber.Map{
+				"role":      "assistant",
+				"content":   "Re-evaluation failed. The AI agent is temporarily unavailable.",
+				"timestamp": time.Now(),
+			},
+		})
+	}
+
+	// Extract any embedded requirements document from the LLM response
+	conversationalPart, extractedDoc := extractDocument(assistantResponse)
+
+	// If a document was extracted, update the topic's requirement document
+	documentUpdated := false
+	if extractedDoc != "" {
+		if store.SetDocument(topicID, extractedDoc) {
+			documentUpdated = true
+			log.Printf("[DOC] Updated requirement document for topic %q after re-evaluation (%d bytes)", topicID, len(extractedDoc))
+		}
+	}
+
+	// Save assistant response
+	store.AddMessage(topicID, "assistant", conversationalPart)
+
+	return c.Status(http.StatusOK).JSON(fiber.Map{
+		"success":          true,
+		"reevaluate":       true,
+		"message":          fiber.Map{
+			"role":      "assistant",
+			"content":   conversationalPart,
+			"timestamp": time.Now(),
+		},
+		"document_updated": documentUpdated,
+	})
+}
+
+// generateReevaluateResponse sends a re-evaluation prompt to the LLM without conversation history.
+func generateReevaluateResponse(client *llm.Client, t *topic.Topic, prompt string) (string, error) {
+	log.Printf("[REEVAL] Sending re-evaluation request for topic %q", t.ID)
+
+	timeout := time.Duration(client.Timeout()) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	payload := map[string]interface{}{
+		"model": client.Model(),
+		"messages": []map[string]string{
+			{"role": "system", "content": client.PersonaPrompt()},
+			{"role": "user", "content": prompt},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to prepare LLM request: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", client.APIURL(), bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+client.APIKey())
+	req.Header.Set("Content-Type", "application/json")
+
+	httpClient := &http.Client{Timeout: timeout}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("LLM service error: status %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to parse LLM response: %v", err)
+	}
+
+	choices, ok := result["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		return "", fmt.Errorf("LLM returned no response")
+	}
+
+	firstChoice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid LLM response format")
+	}
+
+	message, ok := firstChoice["message"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid LLM response format")
+	}
+
+	content, ok := message["content"].(string)
+	if !ok {
+		return "", fmt.Errorf("LLM returned empty content")
+	}
+
+	log.Printf("[REEVAL] Re-evaluation response received: %d chars", len(content))
+	return content, nil
+}
+
+// maxContextChars is the approximate character limit for conversation context.
+// This is a conservative estimate to stay well within typical LLM context windows.
+const maxContextChars = 60000
+
+// maxRecentMessages is how many recent messages to keep verbatim when summarizing.
+const maxRecentMessages = 20
+
+// buildConversationContext constructs the conversation context string, applying
+// summarization when the conversation exceeds maxContextChars.
+//
+// Strategy:
+// 1. Keep the most recent N messages verbatim (maxRecentMessages)
+// 2. Summarize all older messages into a compact summary
+// 3. Always include topic name, description, and current document
+// 4. Insert summary as a synthetic "narrator" message to preserve context
+func buildConversationContext(t *topic.Topic, userMessage string) string {
+	description := t.Description
+	if description == "" {
+		description = "(no description provided)"
+	}
+
+	// Calculate total conversation size
+	totalChars := 0
+	for _, msg := range t.Messages {
+		totalChars += len(msg.Content) + 20 // +20 for "role: " prefix and newline
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("Topic: %s\nHigh-level requirement: %s\n", t.Name, description))
+
+	// Include current requirement document as context
+	if t.Document != "" {
+		buf.WriteString("\nCurrent requirement document:\n")
+		doc := t.Document
+		if len(doc) > 4000 {
+			doc = doc[:4000] + "\n...(truncated for context)"
+		}
+		buf.WriteString(doc)
+		buf.WriteString("\n")
+	}
+
+	// If conversation fits within limits, include everything
+	if totalChars <= maxContextChars || len(t.Messages) <= maxRecentMessages {
+		buf.WriteString("\nConversation context:\n")
+		for _, msg := range t.Messages {
+			fmt.Fprintf(&buf, "%s: %s\n", msg.Role, msg.Content)
+		}
+		buf.WriteString(fmt.Sprintf("\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", userMessage))
+		return buf.String()
+	}
+
+	// Summarize older messages, keep recent ones verbatim
+	olderMessages := t.Messages[:len(t.Messages)-maxRecentMessages]
+	recentMessages := t.Messages[len(t.Messages)-maxRecentMessages:]
+
+	// Build summary of older conversation
+	buf.WriteString("\nConversation summary (earlier exchanges):\n")
+	summary := summarizeMessages(olderMessages)
+	buf.WriteString(summary)
+
+	// Append recent messages verbatim
+	buf.WriteString("\n\nRecent conversation:\n")
+	for _, msg := range recentMessages {
+		fmt.Fprintf(&buf, "%s: %s\n", msg.Role, msg.Content)
+	}
+
+	buf.WriteString(fmt.Sprintf("\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", userMessage))
+	return buf.String()
+}
+
+// summarizeMessages creates a compact summary of conversation messages.
+// It extracts key decisions, requirements mentioned, and important clarifications.
+func summarizeMessages(messages []topic.Message) string {
+	if len(messages) == 0 {
+		return "(no prior conversation)"
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("Summary of %d earlier exchanges:\n\n", len(messages)))
+
+	// Track key themes and decisions
+	var userPoints []string
+	var assistantInsights []string
+
+	for _, msg := range messages {
+		content := strings.TrimSpace(msg.Content)
+		if len(content) == 0 {
+			continue
+		}
+
+		// Truncate very long messages for summary
+		summaryLen := 200
+		if len(content) > summaryLen {
+			content = content[:summaryLen] + "..."
+		}
+
+		if msg.Role == "user" {
+			userPoints = append(userPoints, content)
+		} else {
+			assistantInsights = append(assistantInsights, content)
+		}
+	}
+
+	// Write user contributions
+	if len(userPoints) > 0 {
+		buf.WriteString("Key points from stakeholder:\n")
+		for i, point := range userPoints {
+			buf.WriteString(fmt.Sprintf("  %d. %s\n", i+1, point))
+		}
+		buf.WriteString("\n")
+	}
+
+	// Write assistant insights
+	if len(assistantInsights) > 0 {
+		buf.WriteString("Key insights and questions from analyst:\n")
+		for i, insight := range assistantInsights {
+			buf.WriteString(fmt.Sprintf("  %d. %s\n", i+1, insight))
+		}
+	}
+
+	return buf.String()
+}
+
 // generateResponse calls the LLM to generate a response based on the conversation history.
+// It applies context management (summarization) when conversations grow large.
 func generateResponse(client *llm.Client, t *topic.Topic, userMessage string) (string, error) {
 	log.Printf("[LLM] === Request for topic %q ===", t.ID)
 
@@ -247,26 +734,8 @@ func generateResponse(client *llm.Client, t *topic.Topic, userMessage string) (s
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// Build conversation context
-	var buf bytes.Buffer
-	log.Printf("[LLM] Building conversation context from %d messages", len(t.Messages))
-	for i, msg := range t.Messages {
-		preview := msg.Content
-		if len(preview) > 100 {
-			preview = preview[:100] + "..."
-		}
-		log.Printf("[LLM]   Message %d (%s): %s", i+1, msg.Role, preview)
-		fmt.Fprintf(&buf, "%s: %s\n", msg.Role, msg.Content)
-	}
-
-	// Include the high-level requirement description in the prompt
-	description := t.Description
-	if description == "" {
-		description = "(no description provided)"
-	}
-
-	// For now, do a simple HTTP POST to the LLM endpoint with the conversation
-	prompt := fmt.Sprintf("Topic: %s\nHigh-level requirement: %s\n\nConversation context:\n%s\n\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", t.Name, description, buf.String(), userMessage)
+	// Build conversation context with automatic summarization for long conversations
+	prompt := buildConversationContext(t, userMessage)
 
 	log.Printf("[LLM] Prompt (truncated): %.500q", prompt)
 
@@ -358,4 +827,60 @@ func generateResponse(client *llm.Client, t *topic.Topic, userMessage string) (s
 
 	log.Printf("[LLM] Success! Response length: %d chars", len(content))
 	return content, nil
+}
+
+// extractDocument parses an LLM response to separate the conversational portion from
+// any embedded requirements document. Documents are expected to be wrapped in --- delimiters:
+//
+//	---
+//	<document content>
+//	---
+//
+// The delimiter must appear on its own line (possibly with leading/trailing whitespace).
+// Returns the conversational part (for the chat UI) and the extracted document content.
+// If no delimited document is found, returns the full response as conversational part
+// and an empty document string.
+func extractDocument(response string) (conversational string, document string) {
+	lines := strings.Split(response, "\n")
+
+	openIdx := -1
+	closeIdx := -1
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			if openIdx == -1 {
+				openIdx = i
+			} else {
+				closeIdx = i
+				break
+			}
+		}
+	}
+
+	if openIdx == -1 || closeIdx == -1 {
+		// No pair of delimiters found — entire response is conversational
+		return strings.TrimSpace(response), ""
+	}
+
+	// Reconstruct document content (lines between the two delimiters)
+	docLines := lines[openIdx+1 : closeIdx]
+	docContent := strings.TrimSpace(strings.Join(docLines, "\n"))
+
+	// Reconstruct conversational parts (before opening and after closing delimiters)
+	before := strings.TrimSpace(strings.Join(lines[:openIdx], "\n"))
+	after := strings.TrimSpace(strings.Join(lines[closeIdx+1:], "\n"))
+
+	// Combine conversational parts
+	var convParts []string
+	if before != "" {
+		convParts = append(convParts, before)
+	}
+	if after != "" {
+		convParts = append(convParts, after)
+	}
+
+	conversational = strings.Join(convParts, "\n\n")
+
+	return conversational, docContent
 }

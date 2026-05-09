@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -158,10 +159,13 @@ func TestPreExistingDocument(t *testing.T) {
 			t.Fatalf("expected JSON response, got: %v", err)
 		}
 
-		// Document should be empty
+		// Document should be the blank template (not empty)
 		doc := created["document"].(string)
-		if doc != "" {
-			t.Errorf("expected empty document when not provided, got: %s", doc)
+		if doc == "" {
+			t.Error("expected blank document template when no document provided, got empty string")
+		}
+		if !strings.Contains(doc, "# Requirements: No Doc Topic") {
+			t.Errorf("expected document template with topic name, got: %s", doc)
 		}
 	})
 

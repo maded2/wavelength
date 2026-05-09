@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -203,7 +204,7 @@ func TestViewRequirementDocument(t *testing.T) {
 		}
 	})
 
-	t.Run("if no requirement information has been documented yet the view indicates this", func(t *testing.T) {
+	t.Run("a newly created topic has a blank requirement document template", func(t *testing.T) {
 		app := fiber.New()
 		store := topic.NewStore()
 
@@ -221,7 +222,7 @@ func TestViewRequirementDocument(t *testing.T) {
 		SetupRoutes(app, store, client)
 
 		topicID := "topic-doc-005"
-		store.Create(topicID, "Empty Doc", "Testing empty document state")
+		store.Create(topicID, "New Topic", "Testing new topic document template")
 
 		req := httptest.NewRequest("GET", "/api/topics/"+topicID, nil)
 		resp, err := app.Test(req)
@@ -235,18 +236,28 @@ func TestViewRequirementDocument(t *testing.T) {
 			t.Fatalf("expected JSON response, got: %v", err)
 		}
 
-		// Document field should be present but empty
+		// Document field should be present with a blank template
 		doc, ok := detail["document"].(string)
 		if !ok {
 			t.Fatal("expected document field to be a string")
 		}
 
-		if doc != "" {
-			t.Errorf("expected empty document for new topic, got: %q", doc)
+		if doc == "" {
+			t.Error("expected blank document template for new topic, got empty string")
+		}
+		// Verify template contains expected structure
+		if !strings.Contains(doc, "# Requirements: New Topic") {
+			t.Errorf("expected document to contain topic name, got: %s", doc)
+		}
+		if !strings.Contains(doc, "## Functional Requirements") {
+			t.Errorf("expected document to contain functional requirements section, got: %s", doc)
+		}
+		if !strings.Contains(doc, "## Non-Functional Requirements") {
+			t.Errorf("expected document to contain non-functional requirements section, got: %s", doc)
 		}
 	})
 
-	t.Run("the document view updates when the user navigates to it", func(t *testing.T) {
+	t.Run("the document view updates when the document is modified", func(t *testing.T) {
 		app := fiber.New()
 		store := topic.NewStore()
 
@@ -266,15 +277,16 @@ func TestViewRequirementDocument(t *testing.T) {
 		topicID := "topic-doc-006"
 		topic := store.Create(topicID, "Update Test", "Testing document updates")
 
-		// First fetch — empty document
+		// First fetch — blank template document
 		req1 := httptest.NewRequest("GET", "/api/topics/"+topicID, nil)
 		resp1, _ := app.Test(req1)
 		var detail1 map[string]interface{}
 		json.NewDecoder(resp1.Body).Decode(&detail1)
 		resp1.Body.Close()
 
-		if detail1["document"] != "" {
-			t.Error("expected empty document initially")
+		initialDoc := detail1["document"].(string)
+		if initialDoc == "" {
+			t.Error("expected blank template document initially, got empty string")
 		}
 
 		// Update document directly
