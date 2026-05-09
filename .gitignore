@@ -1,5 +1,6 @@
-# Built binary
+# Built binaries
 wl
+wavelength
 
 # Data directory (file-based persistence)
 data/
