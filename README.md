@@ -9,10 +9,14 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 ### Key Features
 
 - **AI-powered interviews** — An LLM agent acts as a business analyst, asking targeted questions to uncover requirements, edge cases, and constraints
+- **Streaming responses** — Real-time token streaming (SSE) for instant feedback as the AI responds
 - **Topic management** — Multiple independent requirement-gathering initiatives, each with isolated conversation history and a living requirement document
-- **Living documents** — Markdown requirement documents that evolve as the interview progresses
+- **Living documents** — Markdown requirement documents that evolve as the interview progresses, with automatic `---` delimited extraction from AI responses
+- **Document export** — Download requirement documents as Markdown, PDF, or Word (DOCX)
+- **Re-evaluate command** — Clear conversation history and have the AI re-assess the requirement document from scratch with `/reevaluate`
+- **Context management** — Automatic conversation summarization for long interviews to stay within LLM context windows
 - **Configurable LLM backend** — Swap providers, models, and endpoints via a single JSON config file — no code changes needed
-- **Standalone binary** — No databases, no message queues, no external infrastructure. File-based persistence.
+- **Standalone binary** — No databases, no message queues, no external infrastructure. File-based persistence with atomic writes and file locking.
 
 ## Tech Stack
 
@@ -20,8 +24,10 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 |---|---|
 | Language | Go 1.25 |
 | Web framework | [Fiber](https://github.com/gofiber/fiber) v2 |
-| LLM integration | Direct HTTP to OpenAI-compatible endpoints |
-| Persistence | File-based (JSON + Markdown) |
+| LLM integration | Direct HTTP to OpenAI-compatible endpoints (with streaming) |
+| PDF generation | [gofpdf](https://github.com/jung-kurt/gofpdf) |
+| Persistence | File-based (JSON + JSONL + Markdown) with atomic writes |
+| File locking | [gofrs/flock](https://github.com/gofrs/flock) |
 | Configuration | Single JSON file |
 
 ## Quick Start
@@ -67,6 +73,7 @@ Example configuration:
 |---|---|
 | `llm.timeout` | HTTP request timeout in seconds (default: 60) |
 | `llm.path` | API path appended to endpoint (default: `/chat/completions`) |
+| `persona.system_prompt` | Custom system prompt (uses sensible default if empty) |
 
 ### Running
 
@@ -96,13 +103,49 @@ You can also specify a custom config file:
 |---|---|---|
 | `GET` | `/` | Landing page |
 | `GET` | `/health` | Health check (includes LLM connectivity status) |
+| `GET` | `/topics/:id` | Topic chat page (HTML UI) |
 | `GET` | `/api/topics` | List all topics |
 | `POST` | `/api/topics` | Create a new topic |
 | `GET` | `/api/topics/:id` | Get topic details |
 | `PATCH` | `/api/topics/:id` | Update topic status |
 | `DELETE` | `/api/topics/:id` | Delete a topic |
 | `PATCH` | `/api/topics/:id/document` | Update requirement document |
-| `POST` | `/api/topics/:id/messages` | Send message in topic conversation |
+| `POST` | `/api/topics/:id/messages` | Send message (non-streaming) |
+| `POST` | `/api/topics/:id/messages/stream` | Send message (SSE streaming) |
+| `GET` | `/api/topics/:id/document/download` | Download document (`?format=markdown\|pdf\|word`) |
+
+### Streaming Messages
+
+The streaming endpoint returns a Server-Sent Events (SSE) stream:
+
+```
+POST /api/topics/:id/messages/stream
+Content-Type: application/json
+
+{"content": "Your message here"}
+```
+
+Response events:
+- `{"type": "start"}` — Stream began
+- `{"type": "token", "content": "..."}` — Token chunk (render incrementally)
+- `{"type": "done"}` — Stream complete
+- `{"type": "error", "message": "..."}` — Error occurred
+
+### Document Download
+
+```
+GET /api/topics/:id/document/download?format=markdown  # Default
+GET /api/topics/:id/document/download?format=pdf
+GET /api/topics/:id/document/download?format=word
+```
+
+## Special Commands
+
+Type these in the chat input:
+
+| Command | Description |
+|---|---|
+| `/reevaluate` | Clears all conversation history and asks the AI to re-assess the requirement document from scratch |
 
 ## Project Structure
 
@@ -110,11 +153,9 @@ You can also specify a custom config file:
 cmd/server/         — main entrypoint
 internal/
   config/           — JSON config loading and validation
-  llm/              — LLM client
+  llm/              — LLM client (with streaming support)
   topic/            — Topic CRUD and file-based persistence
-  conversation/     — Message management
-  document/         — Requirement document handling
-  interview/        — Interview orchestration
+  export/           — Document export (Markdown, PDF, Word)
 api/                — Fiber handlers and routes
 static/             — Frontend assets
 configs/            — Example configuration files
@@ -131,12 +172,51 @@ go test ./... # equivalent
 
 All tests use mocked LLM clients — no real API calls are made during testing.
 
+## Architecture
+
+### Persistence
+
+Topics are stored as directories on disk:
+
+```
+data/topics/<topic-id>/
+  meta.json       — Topic metadata (name, status, timestamps)
+  messages.jsonl  — Conversation messages (one JSON per line)
+  document.md     — Living requirement document
+```
+
+All writes use **atomic write-to-temp-then-rename** to prevent corruption on crash. File locking (`gofrs/flock`) ensures safe concurrent access.
+
+### Context Management
+
+For long conversations, Wavelength automatically:
+1. Keeps the 20 most recent messages verbatim
+2. Summarizes older messages into compact bullet points
+3. Includes the current requirement document (truncated if >4000 chars)
+4. Triggers summarization when conversation exceeds ~60,000 characters
+
+### Document Updates
+
+The AI agent wraps updated requirement documents in `---` delimiters:
+
+```
+---
+# Requirements: My Project
+
+## Overview
+...
+---
+```
+
+The backend extracts content between delimiters and saves it as the topic's requirement document. Everything outside the delimiters is treated as conversational response.
+
 ## Design Principles
 
 - **Topic isolation** — No conversation history, document content, or LLM context leaks between topics
 - **Swappable LLM** — Provider, model, and endpoint are purely configuration — never hardcoded
 - **Configurable persona** — The AI agent's system prompt is loaded from config with a sensible default
 - **Graceful degradation** — If the LLM is unavailable, user messages are preserved and the user is notified
+- **Atomic persistence** — All file writes use temp-then-rename to prevent corruption
 - **No auth** — Authentication and RBAC are out of scope
 
 ## License
