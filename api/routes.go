@@ -9,17 +9,20 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
+	"wavelength/internal/convert"
 	"wavelength/internal/export"
 	"wavelength/internal/llm"
-	"wavelength/internal/topic"
+	topicpkg "wavelength/internal/topic"
 )
 
 // SetupRoutes registers all API routes on the given Fiber app.
-func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
+func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) {
 	// Static landing page
 	app.Get("/", LandingPage)
 
@@ -210,8 +213,128 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 		return c.Send(data)
 	})
 
+// Upload document to topic (multipart form)
+		app.Post("/api/topics/:id/upload", func(c *fiber.Ctx) error {
+			topicID := c.Params("id")
+			topic := store.Get(topicID)
+			if topic == nil {
+				return c.Status(http.StatusNotFound).JSON(fiber.Map{
+					"message": "topic not found",
+				})
+			}
+
+			// Block uploads on completed topics
+			if topic.Status == "completed" {
+				return c.Status(http.StatusConflict).JSON(fiber.Map{
+					"message": "this topic is marked as complete. Please reopen it before uploading documents.",
+				})
+			}
+
+			// Parse multipart form (max 10MB)
+			form, err := c.MultipartForm()
+			if err != nil {
+				return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+					"message": "failed to parse upload: " + err.Error(),
+				})
+			}
+
+			files := form.File["file"]
+			if len(files) == 0 {
+				return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+					"message": "no file provided. Use form field name 'file'.",
+				})
+			}
+
+			file := files[0]
+
+			// Check file size (max 10MB)
+			if file.Size > convert.MaxUploadSize {
+				return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+					"message": fmt.Sprintf("file too large: %d bytes (max %d bytes)", file.Size, convert.MaxUploadSize),
+				})
+			}
+
+			// Open uploaded file
+			src, err := file.Open()
+			if err != nil {
+				return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+					"message": "failed to open uploaded file: " + err.Error(),
+				})
+			}
+			defer src.Close()
+
+			// Convert to markdown
+			conv := convert.New()
+			markdown, err := conv.Convert(src, file.Filename)
+			if err != nil {
+				return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+					"message": "failed to convert document: " + err.Error(),
+				})
+			}
+
+			// Determine format
+			format, _ := convert.DetectFormat(file.Filename)
+
+			// Create attachment record
+			attachment := topicpkg.Attachment{
+				ID:              fmt.Sprintf("att-%s", uuid.New().String()[:8]),
+				Filename:        file.Filename,
+				Format:          string(format),
+				Size:            file.Size,
+				UploadedAt:      time.Now(),
+				MarkdownContent: markdown,
+			}
+
+			// Store attachment
+			if !store.AddAttachment(topicID, attachment) {
+				return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+					"message": "failed to save attachment",
+				})
+			}
+
+			log.Printf("[UPLOAD] File %q uploaded to topic %q (%d bytes, %d chars markdown)", file.Filename, topicID, file.Size, len(markdown))
+
+			return c.Status(http.StatusCreated).JSON(fiber.Map{
+				"success":    true,
+				"attachment": fiber.Map{
+					"id":         attachment.ID,
+					"filename":   attachment.Filename,
+					"format":     attachment.Format,
+					"size":       attachment.Size,
+					"chars":      len(markdown),
+					"uploaded_at": attachment.UploadedAt,
+				},
+				"message": fmt.Sprintf("Document %q uploaded and converted to markdown (%d characters). The AI agent can now reference this document.", filepath.Base(file.Filename), len(markdown)),
+			})
+		})
+
+	// List attachments for a topic
+		app.Get("/api/topics/:id/attachments", func(c *fiber.Ctx) error {
+			topicID := c.Params("id")
+			topic := store.Get(topicID)
+			if topic == nil {
+				return c.Status(http.StatusNotFound).JSON(fiber.Map{
+					"message": "topic not found",
+				})
+			}
+
+			attachments := store.ListAttachments(topicID)
+			// Return only metadata, not markdown content (too large for list)
+			result := make([]map[string]interface{}, 0, len(attachments))
+			for _, att := range attachments {
+				result = append(result, map[string]interface{}{
+					"id":          att.ID,
+					"filename":    att.Filename,
+					"format":      att.Format,
+					"size":        att.Size,
+					"uploaded_at": att.UploadedAt,
+				})
+			}
+			return c.JSON(result)
+		})
+
 	// Submit message to topic conversation (non-streaming, legacy)
-	app.Post("/api/topics/:id/messages", func(c *fiber.Ctx) error {
+		app.Post("/api/topics/:id/messages", func(c *fiber.Ctx) error {
 		topicID := c.Params("id")
 
 		var req struct {
@@ -347,17 +470,8 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 		c.Set("Connection", "keep-alive")
 		c.Set("X-Accel-Buffering", "no")
 
-		// Build conversation messages for streaming
-		description := topic.Description
-		if description == "" {
-			description = "(no description provided)"
-		}
-
-		prompt := fmt.Sprintf("Topic: %s\nHigh-level requirement: %s\n\nConversation context:\n", topic.Name, description)
-		for _, msg := range topic.Messages {
-			prompt += fmt.Sprintf("%s: %s\n", msg.Role, msg.Content)
-		}
-		prompt += fmt.Sprintf("\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", req.Content)
+		// Build conversation messages for streaming (includes attachments in context)
+		prompt := buildConversationContext(topic, req.Content)
 
 		// Build messages array for streaming
 		messages := make([]llm.Message, 0, len(topic.Messages))
@@ -457,7 +571,7 @@ func SetupRoutes(app *fiber.App, store topic.TopicStore, client *llm.Client) {
 
 // handleReevaluate clears the conversation history and asks the LLM to re-assess
 // the current requirement document from scratch.
-func handleReevaluate(c *fiber.Ctx, store topic.TopicStore, client *llm.Client, topicID string, topic *topic.Topic) error {
+func handleReevaluate(c *fiber.Ctx, store topicpkg.TopicStore, client *llm.Client, topicID string, topic *topicpkg.Topic) error {
 	log.Printf("[REEVAL] Re-evaluating topic %q — clearing %d messages", topicID, len(topic.Messages))
 
 	// Clear all conversation history
@@ -535,7 +649,7 @@ Remember to maintain the document in markdown format and wrap any updated docume
 }
 
 // generateReevaluateResponse sends a re-evaluation prompt to the LLM without conversation history.
-func generateReevaluateResponse(client *llm.Client, t *topic.Topic, prompt string) (string, error) {
+func generateReevaluateResponse(client *llm.Client, t *topicpkg.Topic, prompt string) (string, error) {
 	log.Printf("[REEVAL] Sending re-evaluation request for topic %q", t.ID)
 
 	timeout := time.Duration(client.Timeout()) * time.Second
@@ -615,9 +729,9 @@ const maxRecentMessages = 20
 // Strategy:
 // 1. Keep the most recent N messages verbatim (maxRecentMessages)
 // 2. Summarize all older messages into a compact summary
-// 3. Always include topic name, description, and current document
+// 3. Always include topic name, description, current document, and uploaded attachments
 // 4. Insert summary as a synthetic "narrator" message to preserve context
-func buildConversationContext(t *topic.Topic, userMessage string) string {
+func buildConversationContext(t *topicpkg.Topic, userMessage string) string {
 	description := t.Description
 	if description == "" {
 		description = "(no description provided)"
@@ -631,6 +745,26 @@ func buildConversationContext(t *topic.Topic, userMessage string) string {
 
 	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf("Topic: %s\nHigh-level requirement: %s\n", t.Name, description))
+
+	// Include uploaded document attachments as reference material
+	if len(t.Attachments) > 0 {
+		buf.WriteString("\nUploaded reference documents:\n")
+		for _, att := range t.Attachments {
+			if att.MarkdownContent == "" {
+				continue
+			}
+			buf.WriteString(fmt.Sprintf("\n--- Document: %s (%s, %d bytes) ---\n", att.Filename, att.Format, att.Size))
+			content := att.MarkdownContent
+			// Truncate very large documents to fit context window
+			maxDocChars := 8000
+			if len(content) > maxDocChars {
+				content = content[:maxDocChars] + "\n...(truncated)"
+			}
+			buf.WriteString(content)
+			buf.WriteString("\n")
+		}
+		buf.WriteString("\n")
+	}
 
 	// Include current requirement document as context
 	if t.Document != "" {
@@ -674,7 +808,7 @@ func buildConversationContext(t *topic.Topic, userMessage string) string {
 
 // summarizeMessages creates a compact summary of conversation messages.
 // It extracts key decisions, requirements mentioned, and important clarifications.
-func summarizeMessages(messages []topic.Message) string {
+func summarizeMessages(messages []topicpkg.Message) string {
 	if len(messages) == 0 {
 		return "(no prior conversation)"
 	}
@@ -727,7 +861,7 @@ func summarizeMessages(messages []topic.Message) string {
 
 // generateResponse calls the LLM to generate a response based on the conversation history.
 // It applies context management (summarization) when conversations grow large.
-func generateResponse(client *llm.Client, t *topic.Topic, userMessage string) (string, error) {
+func generateResponse(client *llm.Client, t *topicpkg.Topic, userMessage string) (string, error) {
 	log.Printf("[LLM] === Request for topic %q ===", t.ID)
 
 	timeout := time.Duration(client.Timeout()) * time.Second

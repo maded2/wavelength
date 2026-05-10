@@ -7,17 +7,29 @@ import (
 	"time"
 )
 
+// Attachment represents an uploaded document attached to a topic.
+type Attachment struct {
+	ID        string    `json:"id"`
+	Filename  string    `json:"filename"`
+	Format    string    `json:"format"` // "markdown", "pdf", "word"
+	Size      int64     `json:"size"`
+	UploadedAt time.Time `json:"uploaded_at"`
+	// MarkdownContent holds the converted markdown text (for LLM context)
+	MarkdownContent string `json:"markdown_content,omitempty"`
+}
+
 // Topic represents a requirement-gathering initiative.
 type Topic struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	Description   string     `json:"description"`
-	Status        string     `json:"status"` // "not_started", "active", "completed"
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	MessageCount  int        `json:"message_count"`
-	Messages      []Message  `json:"messages"`
-	Document      string     `json:"document"`
+	ID            string       `json:"id"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description"`
+	Status        string       `json:"status"` // "not_started", "active", "completed"
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
+	MessageCount  int          `json:"message_count"`
+	Messages      []Message    `json:"messages"`
+	Document      string       `json:"document"`
+	Attachments   []Attachment `json:"attachments,omitempty"`
 }
 
 // Message represents a single exchange in a conversation.
@@ -38,6 +50,8 @@ type TopicStore interface {
 	SetStatus(id, status string) bool
 	SetDocument(id, document string) bool
 	Delete(id string) bool
+	AddAttachment(topicID string, attachment Attachment) bool
+	ListAttachments(topicID string) []Attachment
 }
 
 // blankDocument returns the initial markdown template for a new requirement document.
@@ -167,6 +181,37 @@ func (s *Store) Delete(id string) bool {
 
 	delete(s.topics, id)
 	return true
+}
+
+// AddAttachment adds an uploaded document attachment to a topic.
+func (s *Store) AddAttachment(topicID string, attachment Attachment) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[topicID]
+	if !ok {
+		return false
+	}
+
+	topic.Attachments = append(topic.Attachments, attachment)
+	topic.UpdatedAt = time.Now()
+	return true
+}
+
+// ListAttachments returns all attachments for a topic.
+func (s *Store) ListAttachments(topicID string) []Attachment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	topic, ok := s.topics[topicID]
+	if !ok {
+		return nil
+	}
+
+	if topic.Attachments == nil {
+		return []Attachment{}
+	}
+	return topic.Attachments
 }
 
 // List returns all topics, sorted by most recently updated first.

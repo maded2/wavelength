@@ -10,6 +10,7 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 
 - **AI-powered interviews** — An LLM agent acts as a business analyst, asking targeted questions to uncover requirements, edge cases, and constraints
 - **Streaming responses** — Real-time token streaming (SSE) for instant feedback as the AI responds
+- **Document upload** — Upload reference documents (Markdown, PDF, Word/DOCX) from the chat window; they are converted to Markdown and included in the AI agent's context
 - **Topic management** — Multiple independent requirement-gathering initiatives, each with isolated conversation history and a living requirement document
 - **Living documents** — Markdown requirement documents that evolve as the interview progresses, with automatic `---` delimited extraction from AI responses
 - **Document export** — Download requirement documents as Markdown, PDF, or Word (DOCX)
@@ -26,6 +27,7 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 | Web framework | [Fiber](https://github.com/gofiber/fiber) v2 |
 | LLM integration | Direct HTTP to OpenAI-compatible endpoints (with streaming) |
 | PDF generation | [gofpdf](https://github.com/jung-kurt/gofpdf) |
+| PDF parsing | [ledongthuc/pdf](https://github.com/ledongthuc/pdf) |
 | Persistence | File-based (JSON + JSONL + Markdown) with atomic writes |
 | File locking | [gofrs/flock](https://github.com/gofrs/flock) |
 | Configuration | Single JSON file |

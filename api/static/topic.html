@@ -376,7 +376,7 @@
             flex-shrink: 0;
             transition: background 0.3s, border-color 0.3s;
         }
-        .input-wrapper { display: flex; gap: 10px; }
+        .input-wrapper { display: flex; gap: 10px; align-items: flex-end; }
         .input-wrapper textarea {
             flex: 1;
             padding: 10px 14px;
@@ -402,14 +402,83 @@
             color: #fff;
             border: none;
             padding: 0 20px;
+            height: 44px;
             border-radius: 8px;
             font-size: 14px;
             cursor: pointer;
             white-space: nowrap;
             transition: background 0.2s;
+            flex-shrink: 0;
         }
         .input-wrapper button:hover { background: var(--accent-hover); }
         .input-wrapper button:disabled { background: var(--accent-muted); cursor: not-allowed; }
+
+        /* ── File Upload ── */
+        .upload-btn {
+            background: var(--btn-sec-bg);
+            color: var(--btn-sec-text);
+            border: 1px solid var(--btn-sec-border);
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: background 0.2s, border-color 0.2s;
+            flex-shrink: 0;
+        }
+        .upload-btn:hover { background: var(--btn-sec-hover); border-color: var(--accent); }
+        .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        #file-input { display: none; }
+
+        /* ── Attachment List ── */
+        .attachment-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 0 20px 8px;
+            background: var(--bg-surface);
+        }
+        .attachment-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            background: var(--accent-muted);
+            border-radius: 12px;
+            font-size: 11px;
+            color: var(--accent);
+            max-width: 200px;
+            overflow: hidden;
+        }
+        .attachment-chip .filename {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .attachment-chip .format-badge {
+            background: var(--accent);
+            color: #fff;
+            padding: 0 4px;
+            border-radius: 4px;
+            font-size: 9px;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+
+        /* ── Upload Status Message ── */
+        .upload-status {
+            padding: 8px 20px;
+            background: var(--accent-muted);
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--accent);
+            display: none;
+        }
+        .upload-status.show { display: block; }
+        .upload-status.error { background: rgba(220,38,38,0.1); color: var(--danger); }
 
         .spinner {
             display: inline-block;
@@ -464,9 +533,14 @@
                 <div class="empty-chat">Loading topic...</div>
             </div>
 
+            <div class="attachment-list" id="attachment-list"></div>
+            <div class="upload-status" id="upload-status"></div>
+
             <div class="input-area">
                 <div class="input-wrapper">
-                    <textarea id="message-input" placeholder="Type your message..." rows="1"></textarea>
+                    <input type="file" id="file-input" accept=".md,.markdown,.pdf,.docx" onchange="handleFileUpload(event)">
+                    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('file-input').click()" title="Upload document (Markdown, PDF, Word)">📎</button>
+                    <textarea id="message-input" placeholder="Type your message or upload a document..." rows="1"></textarea>
                     <button id="send-btn" onclick="sendMessage()">Send</button>
                 </div>
             </div>
@@ -497,6 +571,118 @@
 
         const topicId = window.location.pathname.split('/').pop();
         let currentTopic = null;
+        let attachments = [];
+
+        // ── File Upload ──
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const uploadBtn = document.getElementById('upload-btn');
+            const statusEl = document.getElementById('upload-status');
+
+            // Validate file type
+            const ext = file.name.split('.').pop().toLowerCase();
+            const allowed = ['md', 'markdown', 'pdf', 'docx'];
+            if (!allowed.includes(ext)) {
+                showUploadStatus('Unsupported file format. Use Markdown (.md), PDF (.pdf), or Word (.docx).', true);
+                event.target.value = '';
+                return;
+            }
+
+            // Validate file size (10MB max)
+            if (file.size > 10 * 1024 * 1024) {
+                showUploadStatus('File too large. Maximum size is 10MB.', true);
+                event.target.value = '';
+                return;
+            }
+
+            // Disable upload button and show status
+            uploadBtn.disabled = true;
+            showUploadStatus(`Uploading ${file.name}...`, false);
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const res = await fetch('/api/topics/' + topicId + '/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    showUploadStatus(data.message || 'Upload failed. Please try again.', true);
+                    uploadBtn.disabled = false;
+                    event.target.value = '';
+                    return;
+                }
+
+                // Add to attachments list
+                attachments.push({
+                    id: data.attachment.id,
+                    filename: data.attachment.filename,
+                    format: data.attachment.format,
+                    size: data.attachment.size,
+                    uploaded_at: data.attachment.uploaded_at
+                });
+                renderAttachments();
+
+                // Show success message
+                showUploadStatus(data.message || 'Document uploaded successfully!', false);
+
+                // Auto-hide success message after 5 seconds
+                setTimeout(() => {
+                    if (!statusEl.classList.contains('error')) {
+                        statusEl.classList.remove('show');
+                    }
+                }, 5000);
+
+            } catch (e) {
+                showUploadStatus('Upload failed: ' + e.message, true);
+            } finally {
+                uploadBtn.disabled = false;
+                event.target.value = '';
+            }
+        }
+
+        function renderAttachments() {
+            const list = document.getElementById('attachment-list');
+            if (attachments.length === 0) {
+                list.innerHTML = '';
+                return;
+            }
+            list.innerHTML = attachments.map(att => `
+                <div class="attachment-chip" title="${escapeHtml(att.filename)}">
+                    <span class="filename">${escapeHtml(att.filename)}</span>
+                    <span class="format-badge">${att.format}</span>
+                </div>
+            `).join('');
+        }
+
+        function showUploadStatus(message, isError) {
+            const statusEl = document.getElementById('upload-status');
+            statusEl.textContent = message;
+            statusEl.classList.add('show');
+            if (isError) {
+                statusEl.classList.add('error');
+            } else {
+                statusEl.classList.remove('error');
+            }
+        }
+
+        async function loadAttachments() {
+            try {
+                const res = await fetch('/api/topics/' + topicId + '/attachments');
+                if (res.ok) {
+                    attachments = await res.json();
+                    renderAttachments();
+                }
+            } catch (e) {
+                console.error('Failed to load attachments:', e);
+            }
+        }
 
         // Auto-resize textarea
         const textarea = document.getElementById('message-input');
@@ -617,6 +803,9 @@
 
                 // Render messages
                 renderMessages(currentTopic.messages || []);
+
+                // Load attachments
+                await loadAttachments();
             } catch (e) {
                 console.error('Failed to load topic:', e);
                 document.getElementById('chat-area').innerHTML = '<div class="empty-chat"><p>Failed to load topic</p></div>';

@@ -241,6 +241,12 @@ func (s *FileStore) loadTopicDir(id, dirPath string) error {
 		document = string(docData)
 	}
 
+	// Load attachments (optional)
+	attachments, err := s.loadAttachments(id, dirPath)
+	if err != nil {
+		return fmt.Errorf("failed to load attachments: %w", err)
+	}
+
 	topic := &Topic{
 		ID:          meta.ID,
 		Name:        meta.Name,
@@ -251,6 +257,7 @@ func (s *FileStore) loadTopicDir(id, dirPath string) error {
 		MessageCount: meta.MessageCount,
 		Messages:    messages,
 		Document:    document,
+		Attachments: attachments,
 	}
 
 	s.topics[id] = topic
@@ -534,6 +541,10 @@ func deepCopyTopic(t *Topic) Topic {
 		copied.Messages = make([]Message, len(t.Messages))
 		copy(copied.Messages, t.Messages)
 	}
+	if t.Attachments != nil {
+		copied.Attachments = make([]Attachment, len(t.Attachments))
+		copy(copied.Attachments, t.Attachments)
+	}
 	return copied
 }
 
@@ -665,6 +676,79 @@ func (s *FileStore) Delete(id string) bool {
 	// Also remove any legacy file that might still exist
 	_ = os.Remove(filepath.Join(s.topicsRoot(), id+".json"))
 	return true
+}
+
+// AddAttachment adds an uploaded document attachment to a topic.
+func (s *FileStore) AddAttachment(topicID string, attachment Attachment) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[topicID]
+	if !ok {
+		return false
+	}
+
+	if topic.Attachments == nil {
+		topic.Attachments = make([]Attachment, 0)
+	}
+	topic.Attachments = append(topic.Attachments, attachment)
+	topic.UpdatedAt = time.Now()
+
+	// Persist attachments to disk
+	_ = s.persistAttachments(topicID, topic.Attachments)
+	return true
+}
+
+// ListAttachments returns all attachments for a topic.
+func (s *FileStore) ListAttachments(topicID string) []Attachment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	topic, ok := s.topics[topicID]
+	if !ok {
+		return nil
+	}
+
+	if topic.Attachments == nil {
+		return []Attachment{}
+	}
+	result := make([]Attachment, len(topic.Attachments))
+	copy(result, topic.Attachments)
+	return result
+}
+
+// attachmentsFile returns the path to the attachments JSON file.
+func (s *FileStore) attachmentsFile(id string) string {
+	return filepath.Join(s.topicPath(id), "attachments.json")
+}
+
+// persistAttachments writes attachments to disk.
+func (s *FileStore) persistAttachments(id string, attachments []Attachment) error {
+	if len(attachments) == 0 {
+		return nil
+	}
+	data, err := json.MarshalIndent(attachments, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal attachments: %w", err)
+	}
+	return atomicWriteFile(s.attachmentsFile(id), data, 0644)
+}
+
+// loadAttachments reads attachments from disk.
+func (s *FileStore) loadAttachments(id, dirPath string) ([]Attachment, error) {
+	path := filepath.Join(dirPath, "attachments.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read attachments: %w", err)
+	}
+	var attachments []Attachment
+	if err := json.Unmarshal(data, &attachments); err != nil {
+		return nil, fmt.Errorf("failed to parse attachments: %w", err)
+	}
+	return attachments, nil
 }
 
 // List returns all topics, sorted by most recently updated first.
