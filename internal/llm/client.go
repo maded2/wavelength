@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -116,25 +117,48 @@ func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt s
 
 	body, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[LLM-STREAM] ERROR marshalling request payload: %v", err)
 		return fmt.Errorf("failed to prepare LLM request: %v", err)
 	}
 
+	apiURL := c.APIURL()
+	log.Printf("[LLM-STREAM] === Request: POST %s (model=%s, stream=true, msgs=%d, body=%d bytes) ===",
+		apiURL, c.cfg.LLM.Model, len(messages), len(body))
+
 	timeout := time.Duration(c.cfg.LLM.Timeout) * time.Second
-	req, err := http.NewRequestWithContext(ctx, "POST", c.APIURL(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
 	if err != nil {
+		log.Printf("[LLM-STREAM] ERROR creating HTTP request: %v", err)
 		return fmt.Errorf("cannot connect to LLM service: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	httpClient := &http.Client{Timeout: timeout}
+	start := time.Now()
+
+	log.Printf("[LLM-STREAM] Sending HTTP request to LLM (timeout=%ds)...", c.cfg.LLM.Timeout)
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		elapsed := time.Since(start)
+		log.Printf("[LLM-STREAM] ERROR HTTP request failed after %v: %v", elapsed, err)
 		return fmt.Errorf("cannot connect to LLM service: %v", err)
 	}
 	defer resp.Body.Close()
 
+	elapsed := time.Since(start)
+	log.Printf("[LLM-STREAM] HTTP response received in %v: status=%d", elapsed, resp.StatusCode)
+
 	if resp.StatusCode >= 400 {
+		// Read and log the error response body for debugging
+		var errBody bytes.Buffer
+		_, readErr := errBody.ReadFrom(resp.Body)
+		if readErr != nil {
+			log.Printf("[LLM-STREAM] ERROR LLM returned status %d (could not read body: %v)", resp.StatusCode, readErr)
+		} else {
+			bodyStr := errBody.String()
+			log.Printf("[LLM-STREAM] ERROR LLM returned status %d, body: %s", resp.StatusCode, bodyStr)
+		}
 		return fmt.Errorf("LLM service error: status %d", resp.StatusCode)
 	}
 
@@ -144,6 +168,12 @@ func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt s
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
+	var totalTokens int
+	var totalChars int
+	streamStart := time.Now()
+
+	log.Printf("[LLM-STREAM] Beginning token stream...")
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -151,6 +181,9 @@ func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt s
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
+			streamElapsed := time.Since(streamStart)
+			log.Printf("[LLM-STREAM] Stream complete: %d tokens, %d chars in %v", totalTokens, totalChars, streamElapsed)
+
 			// Emit done event
 			event := map[string]interface{}{
 				"type": "done",
@@ -161,6 +194,7 @@ func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt s
 
 		var chunk map[string]interface{}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			log.Printf("[LLM-STREAM] WARN failed to parse SSE chunk: %v (data: %.200q)", err, data)
 			continue
 		}
 
@@ -174,6 +208,11 @@ func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt s
 			continue
 		}
 
+		// Log finish_reason if present (indicates how the model stopped)
+		if finishReason, ok := firstChoice["finish_reason"].(string); ok && finishReason != "" {
+			log.Printf("[LLM-STREAM] Model finish_reason: %s", finishReason)
+		}
+
 		delta, ok := firstChoice["delta"].(map[string]interface{})
 		if !ok {
 			continue
@@ -184,21 +223,31 @@ func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt s
 			continue
 		}
 
+		totalTokens++
+		totalChars += len(content)
+
 		// Emit token event
 		event := map[string]interface{}{
 			"type":    "token",
 			"content": content,
 		}
 		if err := json.NewEncoder(w).Encode(event); err != nil {
+			log.Printf("[LLM-STREAM] ERROR failed to write stream event after %d tokens: %v", totalTokens, err)
 			return fmt.Errorf("failed to write stream event: %v", err)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
+		streamElapsed := time.Since(streamStart)
+		log.Printf("[LLM-STREAM] ERROR stream read error after %v (%d tokens, %d chars): %v",
+			streamElapsed, totalTokens, totalChars, err)
 		return fmt.Errorf("stream read error: %v", err)
 	}
 
 	// Emit done if we reach here without [DONE]
+	streamElapsed := time.Since(streamStart)
+	log.Printf("[LLM-STREAM] Stream ended without [DONE]: %d tokens, %d chars in %v", totalTokens, totalChars, streamElapsed)
+
 	event := map[string]interface{}{
 		"type": "done",
 	}

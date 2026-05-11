@@ -480,8 +480,30 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 		}
 		messages = append(messages, llm.Message{Role: "user", Content: prompt})
 
-		// Create a pipe to capture the full response for document extraction
+		// Capture a valid context before spawning goroutine — Fiber's context
+		// can become nil/cancelled once the request handler returns.
+		// c.Context() returns *fasthttp.RequestCtx which implements context.Context.
+		var streamCtx context.Context
+		if fc := c.Context(); fc != nil {
+			streamCtx = context.Context(fc)
+		} else {
+			streamCtx = context.Background()
+		}
+
+		// Set SSE headers
+		c.Context().SetContentType("text/event-stream")
+		c.Set("Cache-Control", "no-cache")
+		c.Set("Connection", "keep-alive")
+		c.Set("X-Accel-Buffering", "no")
+
+		// Create a pipe: the HTTP response reads from the pipe reader, while the
+		// goroutine writes to the pipe writer.  We use io.MultiWriter so every
+		// write also goes into a capture buffer for document extraction — this
+		// avoids the race condition of two goroutines competing to read from the
+		// same pipe reader.
 		pr, pw := io.Pipe()
+		var captureBuffer strings.Builder
+		tee := io.MultiWriter(pw, &captureBuffer)
 
 		// Start streaming to client in a goroutine
 		go func() {
@@ -491,42 +513,27 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 			startEvent := map[string]interface{}{
 				"type": "start",
 			}
-			json.NewEncoder(pw).Encode(startEvent)
+			json.NewEncoder(tee).Encode(startEvent)
 
-			// Stream LLM response
-			streamErr := client.StreamResponse(c.Context(), pw, client.PersonaPrompt(), messages)
+			// Stream LLM response — tokens go to both HTTP response and capture buffer
+			streamErr := client.StreamResponse(streamCtx, tee, client.PersonaPrompt(), messages)
 			if streamErr != nil {
+				log.Printf("[LLM-STREAM] ERROR streaming response for topic %q: %v", topicID, streamErr)
 				errEvent := map[string]interface{}{
 					"type":    "error",
 					"message": "The AI agent is temporarily unavailable. Your message has been saved.",
 				}
-				json.NewEncoder(pw).Encode(errEvent)
+				json.NewEncoder(tee).Encode(errEvent)
 			}
 
 			// Send done event
 			doneEvent := map[string]interface{}{
 				"type": "done",
 			}
-			json.NewEncoder(pw).Encode(doneEvent)
-		}()
+			json.NewEncoder(tee).Encode(doneEvent)
 
-		// Read from pipe to capture full response for document extraction
-		go func() {
-			var fullResponse strings.Builder
-			buf := make([]byte, 4096)
-			for {
-				n, readErr := pr.Read(buf)
-				if n > 0 {
-					fullResponse.Write(buf[:n])
-				}
-				if readErr != nil {
-					// Stream ended
-					break
-				}
-			}
-
-			// Parse tokens from captured response to reconstruct full assistant message
-			responseText := fullResponse.String()
+			// Now process captured tokens for document extraction
+			responseText := captureBuffer.String()
 			var tokens []string
 			scanner := bufio.NewScanner(strings.NewReader(responseText))
 			for scanner.Scan() {
@@ -536,19 +543,27 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 				}
 				var event map[string]interface{}
 				if err := json.Unmarshal([]byte(line), &event); err != nil {
+					log.Printf("[LLM-STREAM] WARN failed to parse captured event line for topic %q: %v (line: %.200q)", topicID, err, line)
 					continue
 				}
 				if eventType, ok := event["type"].(string); ok && eventType == "token" {
 					if content, ok := event["content"].(string); ok {
 						tokens = append(tokens, content)
 					}
+				} else if eventType, ok := event["type"].(string); ok && eventType == "error" {
+					if errMsg, ok := event["message"].(string); ok {
+						log.Printf("[LLM-STREAM] ERROR event captured for topic %q: %s", topicID, errMsg)
+					}
 				}
 			}
 
 			assistantResponse := strings.Join(tokens, "")
 			if assistantResponse == "" {
+				log.Printf("[LLM-STREAM] WARN no assistant tokens captured for topic %q (buffer: %d bytes)", topicID, len(responseText))
 				return
 			}
+
+			log.Printf("[LLM-STREAM] Captured %d tokens (%d chars) for topic %q", len(tokens), len(assistantResponse), topicID)
 
 			// Extract any embedded requirements document
 			conversationalPart, extractedDoc := extractDocument(assistantResponse)
@@ -557,11 +572,14 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 			if extractedDoc != "" {
 				if store.SetDocument(topicID, extractedDoc) {
 					log.Printf("[DOC] Updated requirement document for topic %q (%d bytes)", topicID, len(extractedDoc))
+				} else {
+					log.Printf("[LLM-STREAM] WARN failed to save extracted document for topic %q", topicID)
 				}
 			}
 
 			// Save assistant response
 			store.AddMessage(topicID, "assistant", conversationalPart)
+			log.Printf("[LLM-STREAM] Saved assistant message for topic %q (%d chars conversational)", topicID, len(conversationalPart))
 		}()
 
 		// Stream the pipe to the HTTP response
@@ -601,9 +619,13 @@ Current requirement document:
 Please review the document critically and:
 1. Identify any gaps, inconsistencies, or missing sections
 2. Suggest improvements to the structure and content
-3. Provide an updated version of the document wrapped in --- delimiters if changes are needed
+3. Provide an updated version of the document wrapped in the following delimiters if changes are needed:
 
-Remember to maintain the document in markdown format and wrap any updated document in --- delimiters.`,
+=== REQUIREMENT DOCUMENT ===
+<updated document content>
+=== END REQUIREMENT DOCUMENT ===
+
+Remember to maintain the document in markdown format and wrap any updated document in the delimiters above.`,
 		topic.Name, description, document,
 	)
 
@@ -650,7 +672,7 @@ Remember to maintain the document in markdown format and wrap any updated docume
 
 // generateReevaluateResponse sends a re-evaluation prompt to the LLM without conversation history.
 func generateReevaluateResponse(client *llm.Client, t *topicpkg.Topic, prompt string) (string, error) {
-	log.Printf("[REEVAL] Sending re-evaluation request for topic %q", t.ID)
+	log.Printf("[REEVAL] === Request for topic %q (model=%s, timeout=%ds) ===", t.ID, client.Model(), client.Timeout())
 
 	timeout := time.Duration(client.Timeout()) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -666,53 +688,82 @@ func generateReevaluateResponse(client *llm.Client, t *topicpkg.Topic, prompt st
 
 	body, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[REEVAL] ERROR marshalling payload: %v", err)
 		return "", fmt.Errorf("failed to prepare LLM request: %v", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", client.APIURL(), bytes.NewReader(body))
+	apiURL := client.APIURL()
+	log.Printf("[REEVAL] Sending POST to %s (body size: %d bytes)", apiURL, len(body))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
 	if err != nil {
+		log.Printf("[REEVAL] ERROR creating HTTP request: %v", err)
 		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+client.APIKey())
 	req.Header.Set("Content-Type", "application/json")
 
 	httpClient := &http.Client{Timeout: timeout}
+	start := time.Now()
+
+	log.Printf("[REEVAL] Sending HTTP request to LLM...")
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		elapsed := time.Since(start)
+		log.Printf("[REEVAL] ERROR HTTP request failed after %v: %v", elapsed, err)
 		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
 	}
 	defer resp.Body.Close()
 
+	elapsed := time.Since(start)
+	log.Printf("[REEVAL] HTTP response received in %v: status=%d", elapsed, resp.StatusCode)
+
+	// Read response body for logging
+	var respBody bytes.Buffer
+	_, readErr := respBody.ReadFrom(resp.Body)
+	if readErr != nil {
+		log.Printf("[REEVAL] ERROR reading response body: %v", readErr)
+	}
+	respBodyStr := respBody.String()
+
 	if resp.StatusCode >= 400 {
+		log.Printf("[REEVAL] ERROR LLM returned status %d: %s", resp.StatusCode, respBodyStr)
 		return "", fmt.Errorf("LLM service error: status %d", resp.StatusCode)
 	}
 
+	log.Printf("[REEVAL] Response body (truncated): %.1000q", respBodyStr)
+
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(&respBody).Decode(&result); err != nil {
+		log.Printf("[REEVAL] ERROR parsing JSON response: %v", err)
 		return "", fmt.Errorf("failed to parse LLM response: %v", err)
 	}
 
 	choices, ok := result["choices"].([]interface{})
 	if !ok || len(choices) == 0 {
+		log.Printf("[REEVAL] ERROR no choices in response: %#v", result)
 		return "", fmt.Errorf("LLM returned no response")
 	}
 
 	firstChoice, ok := choices[0].(map[string]interface{})
 	if !ok {
+		log.Printf("[REEVAL] ERROR invalid choices[0] type: %#v", choices[0])
 		return "", fmt.Errorf("invalid LLM response format")
 	}
 
 	message, ok := firstChoice["message"].(map[string]interface{})
 	if !ok {
+		log.Printf("[REEVAL] ERROR no message in first choice: %#v", firstChoice)
 		return "", fmt.Errorf("invalid LLM response format")
 	}
 
 	content, ok := message["content"].(string)
 	if !ok {
+		log.Printf("[REEVAL] ERROR no content in message: %#v", message)
 		return "", fmt.Errorf("LLM returned empty content")
 	}
 
-	log.Printf("[REEVAL] Re-evaluation response received: %d chars", len(content))
+	log.Printf("[REEVAL] Success! Response length: %d chars", len(content))
 	return content, nil
 }
 
@@ -753,7 +804,7 @@ func buildConversationContext(t *topicpkg.Topic, userMessage string) string {
 			if att.MarkdownContent == "" {
 				continue
 			}
-			buf.WriteString(fmt.Sprintf("\n--- Document: %s (%s, %d bytes) ---\n", att.Filename, att.Format, att.Size))
+			buf.WriteString(fmt.Sprintf("\n[Document: %s (%s, %d bytes)]\n", att.Filename, att.Format, att.Size))
 			content := att.MarkdownContent
 			// Truncate very large documents to fit context window
 			maxDocChars := 8000
@@ -775,6 +826,14 @@ func buildConversationContext(t *topicpkg.Topic, userMessage string) string {
 		}
 		buf.WriteString(doc)
 		buf.WriteString("\n")
+	} else {
+		// No document exists yet — explicitly instruct the LLM to create one
+		buf.WriteString("\nNo requirement document exists yet. You should create an initial\n" +
+			"requirements document based on what you learn from the stakeholder.\n" +
+			"Wrap the complete document in the following delimiters:\n\n" +
+			"=== REQUIREMENT DOCUMENT ===\n" +
+			"<complete markdown document content here>\n" +
+			"=== END REQUIREMENT DOCUMENT ===\n")
 	}
 
 	// If conversation fits within limits, include everything
@@ -964,16 +1023,20 @@ func generateResponse(client *llm.Client, t *topicpkg.Topic, userMessage string)
 }
 
 // extractDocument parses an LLM response to separate the conversational portion from
-// any embedded requirements document. Documents are expected to be wrapped in --- delimiters:
+// any embedded requirements document. Documents are expected to be wrapped in unique
+// delimiters:
 //
-//	---
+//	=== REQUIREMENT DOCUMENT ===
 //	<document content>
-//	---
+//	=== END REQUIREMENT DOCUMENT ===
 //
-// The delimiter must appear on its own line (possibly with leading/trailing whitespace).
+// The delimiters must appear on their own lines (possibly with leading/trailing whitespace).
 // Returns the conversational part (for the chat UI) and the extracted document content.
 // If no delimited document is found, returns the full response as conversational part
 // and an empty document string.
+const docDelimOpen = "=== REQUIREMENT DOCUMENT ==="
+const docDelimClose = "=== END REQUIREMENT DOCUMENT ==="
+
 func extractDocument(response string) (conversational string, document string) {
 	lines := strings.Split(response, "\n")
 
@@ -982,10 +1045,12 @@ func extractDocument(response string) (conversational string, document string) {
 
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" {
+		if trimmed == docDelimOpen {
 			if openIdx == -1 {
 				openIdx = i
-			} else {
+			}
+		} else if trimmed == docDelimClose {
+			if openIdx != -1 {
 				closeIdx = i
 				break
 			}

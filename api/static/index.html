@@ -159,6 +159,139 @@
         .empty-state p { margin-top: 8px; }
 
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+
+        /* ── Modal Dialog ── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.15s ease;
+        }
+        .modal-overlay.show {
+            display: flex;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+        .modal-dialog {
+            background: var(--bg-surface);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+            width: 90%;
+            max-width: 520px;
+            padding: 28px 32px 24px;
+            animation: slideUp 0.2s ease;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to   { transform: translateY(0);    opacity: 1; }
+        }
+        .modal-dialog h2 {
+            font-size: 20px;
+            color: var(--text-heading);
+            margin-bottom: 20px;
+        }
+        .modal-field {
+            margin-bottom: 16px;
+        }
+        .modal-field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .modal-field input[type="text"] {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--input-border);
+            border-radius: 8px;
+            font-size: 15px;
+            font-family: inherit;
+            outline: none;
+            background: var(--input-bg);
+            color: var(--text);
+            transition: border-color 0.2s;
+        }
+        .modal-field input[type="text"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-muted);
+        }
+        .modal-field textarea {
+            width: 100%;
+            min-width: 40ch;
+            min-height: 8lh;
+            padding: 10px 14px;
+            border: 1px solid var(--input-border);
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            line-height: 1.5;
+            outline: none;
+            resize: vertical;
+            background: var(--input-bg);
+            color: var(--text);
+            transition: border-color 0.2s;
+        }
+        .modal-field textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-muted);
+        }
+        .modal-field .hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 24px;
+        }
+        .modal-actions button {
+            padding: 10px 22px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .modal-actions .btn-cancel {
+            background: var(--btn-sec-bg);
+            color: var(--btn-sec-text);
+            border: 1px solid var(--btn-sec-border);
+        }
+        .modal-actions .btn-cancel:hover {
+            background: var(--btn-sec-hover);
+        }
+        .modal-actions .btn-create {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+        }
+        .modal-actions .btn-create:hover {
+            background: var(--accent-hover);
+        }
+        .modal-actions .btn-create:disabled {
+            background: var(--accent-muted);
+            cursor: not-allowed;
+        }
+        .modal-error {
+            color: var(--danger);
+            font-size: 13px;
+            margin-top: 12px;
+            display: none;
+        }
+        .modal-error.show {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -184,6 +317,27 @@
                 <div class="empty-state" id="empty-state">
                     <p>No topics yet. Create your first topic to begin gathering requirements.</p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── New Topic Modal ── -->
+    <div class="modal-overlay" id="new-topic-modal">
+        <div class="modal-dialog">
+            <h2>New Topic</h2>
+            <div class="modal-field">
+                <label for="topic-name-input">Topic Name</label>
+                <input type="text" id="topic-name-input" placeholder="e.g. E-Commerce Platform" autocomplete="off">
+            </div>
+            <div class="modal-field">
+                <label for="topic-desc-input">Description</label>
+                <textarea id="topic-desc-input" placeholder="Describe what you want to build in as much detail as you'd like..."></textarea>
+                <div class="hint">This description helps the AI agent understand your requirements and begin the interview.</div>
+            </div>
+            <div class="modal-error" id="topic-modal-error"></div>
+            <div class="modal-actions">
+                <button class="btn-cancel" id="topic-modal-cancel">Cancel</button>
+                <button class="btn-create" id="topic-modal-create">Create</button>
             </div>
         </div>
     </div>
@@ -257,11 +411,50 @@
             return div.innerHTML;
         }
 
-        document.getElementById('new-topic-btn').addEventListener('click', async () => {
-            const name = prompt('Topic name:');
-            if (!name) return;
-            const description = prompt('High-level description (what do you want to build?):');
-            if (!description) return;
+        // ── New Topic Modal ──
+        const modal       = document.getElementById('new-topic-modal');
+        const nameInput   = document.getElementById('topic-name-input');
+        const descInput   = document.getElementById('topic-desc-input');
+        const cancelBtn   = document.getElementById('topic-modal-cancel');
+        const createBtn   = document.getElementById('topic-modal-create');
+        const modalError  = document.getElementById('topic-modal-error');
+
+        function openModal() {
+            nameInput.value = '';
+            descInput.value = '';
+            modalError.classList.remove('show');
+            modal.classList.add('show');
+            nameInput.focus();
+        }
+        function closeModal() {
+            modal.classList.remove('show');
+        }
+
+        document.getElementById('new-topic-btn').addEventListener('click', openModal);
+        cancelBtn.addEventListener('click', closeModal);
+
+        // Close on overlay click (outside dialog)
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('show')) closeModal();
+        });
+
+        createBtn.addEventListener('click', async () => {
+            const name = nameInput.value.trim();
+            const description = descInput.value.trim();
+
+            if (!name || !description) {
+                modalError.textContent = 'Both topic name and description are required.';
+                modalError.classList.add('show');
+                return;
+            }
+
+            createBtn.disabled = true;
+            createBtn.textContent = 'Creating...';
+            modalError.classList.remove('show');
 
             try {
                 const res = await fetch('/api/topics', {
@@ -270,13 +463,27 @@
                     body: JSON.stringify({ name, description })
                 });
                 if (res.ok) {
+                    closeModal();
                     loadTopics();
                 } else {
                     const err = await res.json();
-                    alert(err.message || 'Failed to create topic');
+                    modalError.textContent = err.message || 'Failed to create topic';
+                    modalError.classList.add('show');
                 }
             } catch (e) {
-                alert('Failed to create topic: ' + e.message);
+                modalError.textContent = 'Failed to create topic: ' + e.message;
+                modalError.classList.add('show');
+            } finally {
+                createBtn.disabled = false;
+                createBtn.textContent = 'Create';
+            }
+        });
+
+        // Allow Ctrl/Cmd+Enter to submit from the description textarea
+        descInput.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                createBtn.click();
             }
         });
 

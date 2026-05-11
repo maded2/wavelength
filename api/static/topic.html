@@ -171,18 +171,57 @@
             flex: 1;
             display: flex;
             overflow: hidden;
+            position: relative;
         }
 
         /* ── Document Panel (Left) ── */
         .doc-panel {
             width: 40%;
-            min-width: 280px;
-            max-width: 600px;
-            border-right: 1px solid var(--border);
+            min-width: 200px;
+            max-width: 85%;
             display: flex;
             flex-direction: column;
             background: var(--doc-bg);
             transition: background 0.3s, border-color 0.3s;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        /* ── Draggable Splitter ── */
+        .splitter {
+            width: 5px;
+            min-width: 5px;
+            cursor: col-resize;
+            background: var(--border);
+            position: relative;
+            z-index: 10;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        }
+        .splitter:hover,
+        .splitter.active {
+            background: var(--accent);
+        }
+        .splitter::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: -4px;
+            right: -4px;
+        }
+
+        /* Prevent text selection and scrolling while dragging */
+        body.splitter-dragging {
+            user-select: none;
+            -webkit-user-select: none;
+            cursor: col-resize;
+        }
+        body.splitter-dragging * {
+            pointer-events: none !important;
+        }
+        body.splitter-dragging .splitter {
+            pointer-events: auto !important;
         }
         .doc-header {
             padding: 10px 16px;
@@ -495,6 +534,7 @@
         /* ── Responsive: stack on narrow screens ── */
         @media (max-width: 768px) {
             .doc-panel { display: none; }
+            .splitter { display: none; }
         }
     </style>
 </head>
@@ -527,6 +567,8 @@
                 <div class="doc-empty">Loading...</div>
             </div>
         </div>
+
+        <div class="splitter" id="splitter"></div>
 
         <div class="chat-panel">
             <div class="chat-area" id="chat-area">
@@ -1040,6 +1082,66 @@
         }
 
         loadTopic();
+
+        // ── Draggable Splitter ──
+        (function() {
+            var splitter = document.getElementById('splitter');
+            var docPanel = document.querySelector('.doc-panel');
+            var main = document.querySelector('.main');
+            var STORAGE_KEY = 'splitter-doc-width';
+            var MIN_DOC = 200;
+            var MIN_CHAT = 200;
+
+            // Restore saved width
+            var saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                var w = parseInt(saved, 10);
+                if (w >= MIN_DOC) {
+                    docPanel.style.width = w + 'px';
+                }
+            }
+
+            var startX = 0;
+            var startW = 0;
+
+            function onDown(e) {
+                startX = e.clientX || (e.touches && e.touches[0].clientX);
+                startW = docPanel.getBoundingClientRect().width;
+                splitter.classList.add('active');
+                document.body.classList.add('splitter-dragging');
+                e.preventDefault();
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+                document.addEventListener('touchmove', onMove, { passive: false });
+                document.addEventListener('touchend', onUp);
+            }
+
+            function onMove(e) {
+                var x = e.clientX || (e.touches && e.touches[0].clientX);
+                if (x === undefined) return;
+                var delta = x - startX;
+                var newW = startW + delta;
+                var maxW = main.getBoundingClientRect().width - MIN_CHAT;
+                if (newW < MIN_DOC) newW = MIN_DOC;
+                if (newW > maxW) newW = maxW;
+                docPanel.style.width = newW + 'px';
+                e.preventDefault();
+            }
+
+            function onUp() {
+                splitter.classList.remove('active');
+                document.body.classList.remove('splitter-dragging');
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                document.removeEventListener('touchmove', onMove);
+                document.removeEventListener('touchend', onUp);
+                // Save width
+                localStorage.setItem(STORAGE_KEY, Math.round(docPanel.getBoundingClientRect().width));
+            }
+
+            splitter.addEventListener('mousedown', onDown);
+            splitter.addEventListener('touchstart', onDown, { passive: false });
+        })();
     </script>
 </body>
 </html>

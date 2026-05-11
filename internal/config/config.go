@@ -116,13 +116,15 @@ Guidelines:
 - Keep the conversation natural and adaptive to the domain being discussed
 
 Document Updates:
-Whenever you update or create the living requirements document, include the complete document content wrapped in --- delimiters. Format:
+Whenever you update or create the living requirements document, include the complete document content wrapped in the following delimiters (on their own lines):
 
----
+=== REQUIREMENT DOCUMENT ===
 <complete markdown document content here>
----
+=== END REQUIREMENT DOCUMENT ===
 
-The content between the delimiters will be extracted and saved as the topic's requirement document. Everything outside the delimiters is your conversational response to the stakeholder.`
+The content between these delimiters will be extracted and saved as the topic's requirement document. Everything outside the delimiters is your conversational response to the stakeholder.
+
+IMPORTANT: Do NOT use "---" (three dashes) as a document delimiter. The "---" sequence is a standard markdown horizontal rule that may appear naturally in your response. Only use the exact markers "=== REQUIREMENT DOCUMENT ===" and "=== END REQUIREMENT DOCUMENT ===" to wrap document content.`
 
 // GetPersonaPrompt returns the configured persona prompt, or the default if none is set.
 func (c *Config) GetPersonaPrompt() string {
