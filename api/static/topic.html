@@ -1048,7 +1048,11 @@
             if (!confirm('Re-evaluate will clear the entire conversation history and ask the AI to re-assess the requirement document from scratch. Continue?')) return;
 
             const btn = document.getElementById('send-btn');
+            const input = document.getElementById('message-input');
+            const uploadBtn = document.getElementById('upload-btn');
             btn.disabled = true;
+            input.disabled = true;
+            uploadBtn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>Re-evaluating...';
 
             try {
@@ -1073,6 +1077,9 @@
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Send';
+                input.disabled = false;
+                uploadBtn.disabled = false;
+                input.focus();
             }
         }
 
