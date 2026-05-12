@@ -32,9 +32,9 @@ func (c *Client) CheckConnectivity(ctx context.Context) error {
 		Timeout: 5 * time.Second,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", c.cfg.LLM.Endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.APIURL(), nil)
 	if err != nil {
-		return fmt.Errorf("cannot connect to LLM service: invalid endpoint URL %q", c.cfg.LLM.Endpoint)
+		return fmt.Errorf("cannot connect to LLM service: invalid endpoint URL %q", c.APIURL())
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
