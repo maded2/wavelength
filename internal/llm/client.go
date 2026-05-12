@@ -26,18 +26,32 @@ func NewClient(cfg *config.Config) *Client {
 }
 
 // CheckConnectivity performs a basic connectivity check to the configured LLM endpoint.
+// Sends a minimal POST request (max_tokens=1) to verify both reachability and credentials.
 // Returns nil if the endpoint is reachable, or an error with a descriptive message.
 func (c *Client) CheckConnectivity(ctx context.Context) error {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", c.APIURL(), nil)
+	payload := map[string]interface{}{
+		"model":      c.cfg.LLM.Model,
+		"max_tokens": 1,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hi"},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("cannot connect to LLM service: failed to prepare request: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.APIURL(), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("cannot connect to LLM service: invalid endpoint URL %q", c.APIURL())
 	}
-
 	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
