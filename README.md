@@ -9,10 +9,10 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 ### Key Features
 
 - **AI-powered interviews** — An LLM agent acts as a business analyst, asking targeted questions to uncover requirements, edge cases, and constraints
-- **Streaming responses** — Real-time token streaming (SSE) for instant feedback as the AI responds
+- **Streaming responses** — Real-time token streaming via Server-Sent Events (SSE) for instant feedback as the AI responds
 - **Document upload** — Upload reference documents (Markdown, PDF, Word/DOCX) from the chat window; they are converted to Markdown and included in the AI agent's context
 - **Topic management** — Multiple independent requirement-gathering initiatives, each with isolated conversation history and a living requirement document
-- **Living documents** — Markdown requirement documents that evolve as the interview progresses, with automatic `---` delimited extraction from AI responses
+- **Living documents** — Markdown requirement documents that evolve as the interview progresses, with automatic extraction from AI responses using `=== REQUIREMENT DOCUMENT ===` delimiters
 - **Document export** — Download requirement documents as Markdown, PDF, or Word (DOCX)
 - **Re-evaluate command** — Clear conversation history and have the AI re-assess the requirement document from scratch with `/reevaluate`
 - **Context management** — Automatic conversation summarization for long interviews to stay within LLM context windows
@@ -114,6 +114,8 @@ You can also specify a custom config file:
 | `PATCH` | `/api/topics/:id/document` | Update requirement document |
 | `POST` | `/api/topics/:id/messages` | Send message (non-streaming) |
 | `POST` | `/api/topics/:id/messages/stream` | Send message (SSE streaming) |
+| `POST` | `/api/topics/:id/upload` | Upload reference document (Markdown, PDF, DOCX) |
+| `GET` | `/api/topics/:id/attachments` | List topic attachments |
 | `GET` | `/api/topics/:id/document/download` | Download document (`?format=markdown\|pdf\|word`) |
 
 ### Streaming Messages
@@ -141,6 +143,21 @@ GET /api/topics/:id/document/download?format=pdf
 GET /api/topics/:id/document/download?format=word
 ```
 
+### Document Upload
+
+Upload reference documents to be included in the AI agent's context:
+
+```
+POST /api/topics/:id/upload
+Content-Type: multipart/form-data
+
+file=<your-file>
+```
+
+Supported formats: `.md`, `.pdf`, `.docx` (max 10 MB per file).
+
+Uploaded documents are converted to Markdown and stored as attachments. The AI agent references them during the interview conversation.
+
 ## Special Commands
 
 Type these in the chat input:
@@ -157,9 +174,10 @@ internal/
   config/           — JSON config loading and validation
   llm/              — LLM client (with streaming support)
   topic/            — Topic CRUD and file-based persistence
+  convert/          — Document format conversion (PDF, DOCX → Markdown)
   export/           — Document export (Markdown, PDF, Word)
 api/                — Fiber handlers and routes
-static/             — Frontend assets
+api/static/         — Embedded frontend assets (HTML)
 configs/            — Example configuration files
 ```
 
@@ -189,28 +207,43 @@ data/topics/<topic-id>/
 
 All writes use **atomic write-to-temp-then-rename** to prevent corruption on crash. File locking (`gofrs/flock`) ensures safe concurrent access.
 
+Topics are persisted:
+- Every 10 seconds (periodic background save)
+- On graceful shutdown (`SIGINT` / `SIGTERM`)
+
 ### Context Management
 
 For long conversations, Wavelength automatically:
 1. Keeps the 20 most recent messages verbatim
 2. Summarizes older messages into compact bullet points
 3. Includes the current requirement document (truncated if >4000 chars)
-4. Triggers summarization when conversation exceeds ~60,000 characters
+4. Includes uploaded reference documents (truncated if >8000 chars each)
+5. Triggers summarization when conversation exceeds ~60,000 characters
 
 ### Document Updates
 
-The AI agent wraps updated requirement documents in `---` delimiters:
+The AI agent wraps updated requirement documents in `=== REQUIREMENT DOCUMENT ===` delimiters:
 
 ```
----
+=== REQUIREMENT DOCUMENT ===
 # Requirements: My Project
 
 ## Overview
 ...
----
+=== END REQUIREMENT DOCUMENT ===
 ```
 
 The backend extracts content between delimiters and saves it as the topic's requirement document. Everything outside the delimiters is treated as conversational response.
+
+### Topic Statuses
+
+| Status | Description |
+|---|---|
+| `not_started` | Topic created, no messages yet |
+| `active` | Interview in progress |
+| `completed` | Interview finished (messages and uploads blocked until reopened) |
+
+Status transitions: `not_started` → `active` (automatic on first message), `active` → `completed`, `completed` → `active` (via `PATCH /api/topics/:id`).
 
 ## Design Principles
 
