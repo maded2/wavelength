@@ -173,7 +173,8 @@ cmd/server/         — main entrypoint
 internal/
   config/           — JSON config loading and validation
   llm/              — LLM client (with streaming support)
-  topic/            — Topic CRUD and file-based persistence
+  topic/            — Topic CRUD, file-based persistence, and type definitions
+  interview/        — Interview orchestration (agent flow, state management)
   convert/          — Document format conversion (PDF, DOCX → Markdown)
   export/           — Document export (Markdown, PDF, Word)
 api/                — Fiber handlers and routes
@@ -193,6 +194,15 @@ go test ./... # equivalent
 All tests use mocked LLM clients — no real API calls are made during testing.
 
 ## Architecture
+
+### Interview Orchestration
+
+The interview layer (`internal/interview/`) manages the conversational flow between the user and the LLM-powered business analyst agent. It:
+- Maintains the state machine for interview progression
+- Constructs the LLM context (system prompt + message history + requirement document + attachments)
+- Handles streaming token responses from the LLM
+- Parses `=== REQUIREMENT DOCUMENT ===` delimiters from LLM responses to extract document updates
+- Coordinates with the topic and conversation stores for persistence
 
 ### Persistence
 
