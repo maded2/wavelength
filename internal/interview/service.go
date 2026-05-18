@@ -216,6 +216,25 @@ func BuildConversationContext(t *topic.Topic, userMessage string) string {
 		for _, msg := range t.Messages {
 			fmt.Fprintf(&buf, "%s: %s\n", msg.Role, msg.Content)
 		}
+
+		// First interaction — instruct the LLM to critically evaluate existing information
+		// before responding to the user's message.
+		if len(t.Messages) == 1 {
+			buf.WriteString(fmt.Sprintf(
+				"\nUser's latest message: %s\n\n"+
+					"This is the first interaction for this topic. Before responding to the user, "+
+					"critically evaluate the current requirement document and all available information above. "+
+					"Identify gaps, inconsistencies, or missing sections. "+
+					"Provide an updated version of the document wrapped in the following delimiters if improvements are needed:\n"+
+					"=== REQUIREMENT DOCUMENT ===\n"+
+					"<updated document content>\n"+
+					"=== END REQUIREMENT DOCUMENT ===\n\n"+
+					"Then address the user's message as a business analyst conducting requirements gathering.",
+				userMessage,
+			))
+			return buf.String()
+		}
+
 		buf.WriteString(fmt.Sprintf("\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", userMessage))
 		return buf.String()
 	}
