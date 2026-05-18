@@ -25,7 +25,7 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 |---|---|
 | Language | Go 1.25 |
 | Web framework | [Fiber](https://github.com/gofiber/fiber) v2 |
-| LLM integration | Direct HTTP to OpenAI-compatible endpoints (with streaming) |
+| LLM integration | [Eino](https://github.com/cloudwego/eino) framework — OpenAI-compatible chat model with streaming |
 | PDF generation | [gofpdf](https://github.com/jung-kurt/gofpdf) |
 | PDF parsing | [ledongthuc/pdf](https://github.com/ledongthuc/pdf) |
 | Persistence | File-based (JSON + JSONL + Markdown) with atomic writes |
@@ -74,7 +74,7 @@ Example configuration:
 | Field | Description |
 |---|---|
 | `llm.timeout` | HTTP request timeout in seconds (default: 60) |
-| `llm.path` | API path appended to endpoint (default: `/chat/completions`) |
+| `llm.path` | *(reserved for future use — eino handles the API path internally)* |
 | `persona.system_prompt` | Custom system prompt (uses sensible default if empty) |
 
 ### Running
@@ -172,7 +172,7 @@ Type these in the chat input:
 cmd/server/         — main entrypoint
 internal/
   config/           — JSON config loading and validation
-  llm/              — LLM client (with streaming support)
+  llm/              — LLM client backed by Eino's OpenAI-compatible chat model (streaming + non-streaming)
   topic/            — Topic CRUD, file-based persistence, and type definitions
   interview/        — Interview orchestration (agent flow, state management)
   convert/          — Document format conversion (PDF, DOCX → Markdown)
