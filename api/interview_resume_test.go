@@ -18,26 +18,12 @@ import (
 func TestPauseAndResumeInterview(t *testing.T) {
 	t.Run("the user can navigate away from an interview and the conversation state is preserved", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-pause-001"
 		store.Create(topicID, "Pause Test", "Testing pause and resume")
@@ -82,26 +68,12 @@ func TestPauseAndResumeInterview(t *testing.T) {
 
 	t.Run("when the user returns the full conversation history is displayed", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-pause-002"
 		store.Create(topicID, "Resume Test", "Testing resume with history")
@@ -155,31 +127,15 @@ func TestPauseAndResumeInterview(t *testing.T) {
 
 	t.Run("the AI agent is aware of the full prior conversation history when resuming", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// Capture what the LLM receives
-		var receivedPrompt string
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			buf := new(bytes.Buffer)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+buf := new(bytes.Buffer)
 			buf.ReadFrom(r.Body)
 			receivedPrompt = buf.String()
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"I see, let me continue."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-pause-003"
 		store.Create(topicID, "Context Test", "Testing context on resume")
@@ -210,26 +166,12 @@ func TestPauseAndResumeInterview(t *testing.T) {
 
 	t.Run("the user can see the last messages to reorient themselves", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-pause-004"
 		store.Create(topicID, "Reorient Test", "Testing reorientation")
@@ -276,26 +218,12 @@ func TestPauseAndResumeInterview(t *testing.T) {
 
 	t.Run("resuming does not require any special save action", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-pause-005"
 		store.Create(topicID, "Auto Save Test", "Testing auto-save")

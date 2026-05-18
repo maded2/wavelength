@@ -21,28 +21,12 @@ import (
 func TestLLMFailureDuringInterview(t *testing.T) {
 	t.Run("user sees a clear non-technical message when the AI agent cannot respond", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// LLM server that simulates failure
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusServiceUnavailable)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte(`{"error":"service unavailable"}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		// Create a topic first
 		topicID := uuid.New().String()
@@ -81,27 +65,11 @@ func TestLLMFailureDuringInterview(t *testing.T) {
 
 	t.Run("the users message is preserved even when the LLM fails", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// LLM server that simulates failure
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusServiceUnavailable)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := uuid.New().String()
 		store.Create(topicID, "Test Topic", "A test requirement")
@@ -141,34 +109,17 @@ func TestLLMFailureDuringInterview(t *testing.T) {
 
 	t.Run("the entire conversation history up to that point remains intact after LLM failure", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// LLM server that works first, then fails
-		callCount := 0
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			callCount++
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+callCount++
 			if callCount <= 2 {
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(`{"choices":[{"message":{"content":"Got it, let me ask about that."}}]}`))
 			} else {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := uuid.New().String()
 		store.Create(topicID, "Test Topic", "A test requirement")
@@ -214,27 +165,11 @@ func TestLLMFailureDuringInterview(t *testing.T) {
 
 	t.Run("an LLM failure in one topic does not affect the state of other topics", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// LLM server that always fails
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusServiceUnavailable)
+		})
+		app := suite.App
+		store := suite.Store
 
 		// Create two topics
 		topicA := uuid.New().String()

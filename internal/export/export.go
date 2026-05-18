@@ -7,15 +7,7 @@ import (
 	"strings"
 
 	"github.com/jung-kurt/gofpdf"
-)
-
-// Format represents a document export format.
-type Format string
-
-const (
-	FormatMarkdown Format = "markdown"
-	FormatPDF      Format = "pdf"
-	FormatWord     Format = "word"
+	"wavelength/internal/topic"
 )
 
 // Exporter converts a markdown document to the requested format.
@@ -30,13 +22,13 @@ func New(content string) *Exporter {
 
 // Export renders the document in the requested format and returns the bytes
 // along with the appropriate MIME type and file extension.
-func (e *Exporter) Export(format Format) (data []byte, mimeType string, ext string, err error) {
+func (e *Exporter) Export(format topic.Format) (data []byte, mimeType string, ext string, err error) {
 	switch format {
-	case FormatMarkdown:
+	case topic.FormatMarkdown:
 		return []byte(e.content), "text/markdown", ".md", nil
-	case FormatPDF:
+	case topic.FormatPDF:
 		return e.toPDF()
-	case FormatWord:
+	case topic.FormatWord:
 		return e.toWord()
 	default:
 		return nil, "", "", fmt.Errorf("unsupported export format: %q (supported: markdown, pdf, word)", format)

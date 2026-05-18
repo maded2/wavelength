@@ -28,8 +28,8 @@ type LLMConfig struct {
 	Endpoint    string  `json:"endpoint"`
 	APIKey      string  `json:"api_key"`
 	Temperature float64 `json:"temperature"`
-	Timeout     int     `json:"timeout"`       // HTTP request timeout in seconds (default 60)
-	Path        string  `json:"path"`          // API path appended to endpoint (default "/chat/completions")
+	Timeout     int     `json:"timeout"` // HTTP request timeout in seconds (default 60)
+	Path        string  `json:"path"`    // API path appended to endpoint (default "/chat/completions")
 }
 
 // PersonaConfig holds the AI agent persona configuration.
@@ -84,17 +84,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// RedactedLLMConfig returns a copy of the LLM config with sensitive fields removed.
-func (c *Config) RedactedLLMConfig() map[string]interface{} {
-	return map[string]interface{}{
-		"provider":  c.LLM.Provider,
-		"model":     c.LLM.Model,
-		"endpoint":  c.LLM.Endpoint,
-		"api_key":   "***redacted***",
-		"temperature": c.LLM.Temperature,
-	}
-}
-
 // DefaultPersonaPrompt is the default system prompt that positions the AI agent
 // as a business analyst focused on requirements elicitation.
 const DefaultPersonaPrompt = `You are a business analyst working for the IT department conducting a requirements gathering session with stakeholders and product owners.
@@ -135,10 +124,10 @@ func (c *Config) GetPersonaPrompt() string {
 }
 
 var (
-	ErrMissingProvider    = errors.New("llm.provider is required")
-	ErrMissingModel       = errors.New("llm.model is required")
-	ErrMissingEndpoint    = errors.New("llm.endpoint is required")
-	ErrMissingAPIKey      = errors.New("llm.api_key is required")
-	ErrMissingDataDir     = errors.New("data_dir is required")
-	ErrInvalidServerPort  = errors.New("server.port must be a positive integer")
+	ErrMissingProvider   = errors.New("llm.provider is required")
+	ErrMissingModel      = errors.New("llm.model is required")
+	ErrMissingEndpoint   = errors.New("llm.endpoint is required")
+	ErrMissingAPIKey     = errors.New("llm.api_key is required")
+	ErrMissingDataDir    = errors.New("data_dir is required")
+	ErrInvalidServerPort = errors.New("server.port must be a positive integer")
 )

@@ -18,26 +18,12 @@ import (
 func TestEndInterview(t *testing.T) {
 	t.Run("user can signal the agent that they are done with the interview", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Great, I'll wrap up."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-end-001"
 		store.Create(topicID, "End Interview", "Testing interview end")
@@ -169,26 +155,12 @@ func TestEndInterview(t *testing.T) {
 
 	t.Run("the conclusion is a deliberate user-driven action", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-end-004"
 		store.Create(topicID, "Deliberate End", "Testing deliberate conclusion")

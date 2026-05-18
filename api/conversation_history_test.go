@@ -19,26 +19,12 @@ import (
 func TestConversationHistory(t *testing.T) {
 	t.Run("the conversation history displays all messages in chronological order", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-history-001"
 		store.Create(topicID, "History Test", "Testing conversation history")
@@ -91,26 +77,12 @@ func TestConversationHistory(t *testing.T) {
 
 	t.Run("messages are clearly labeled with role and timestamp", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-history-002"
 		store.Create(topicID, "Labels Test", "Testing message labels")
@@ -162,26 +134,12 @@ func TestConversationHistory(t *testing.T) {
 
 	t.Run("the history is available for long conversations with many exchanges", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-history-003"
 		store.Create(topicID, "Long History", "Testing long conversation")

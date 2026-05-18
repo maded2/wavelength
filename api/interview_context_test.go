@@ -20,26 +20,12 @@ import (
 func TestAdditionalContext(t *testing.T) {
 	t.Run("user can provide additional context at any point during the interview", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Understood, GDPR compliance noted."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-context-001"
 		store.Create(topicID, "GDPR App", "A customer management system")
@@ -79,26 +65,12 @@ func TestAdditionalContext(t *testing.T) {
 
 	t.Run("the additional context is reflected in the conversation history", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Noted."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-context-002"
 		store.Create(topicID, "Context History", "Testing context in history")
@@ -146,30 +118,15 @@ func TestAdditionalContext(t *testing.T) {
 
 	t.Run("the AI agent receives the additional context in the conversation prompt", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		var receivedPrompt string
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			buf := new(bytes.Buffer)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+buf := new(bytes.Buffer)
 			io.Copy(buf, r.Body)
 			receivedPrompt = buf.String()
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Understood."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-context-003"
 		store.Create(topicID, "Prompt Context", "Testing prompt includes context")
@@ -201,26 +158,12 @@ func TestAdditionalContext(t *testing.T) {
 
 	t.Run("no special command or format is required to provide context", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Understood."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-context-004"
 		store.Create(topicID, "No Special Format", "Testing plain text context")

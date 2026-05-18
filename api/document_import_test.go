@@ -18,21 +18,9 @@ import (
 
 func TestPreExistingDocument(t *testing.T) {
 	t.Run("user can provide a pre-existing document when creating a topic", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		payload := map[string]string{
 			"name":        "Imported Project",
@@ -68,21 +56,9 @@ func TestPreExistingDocument(t *testing.T) {
 	})
 
 	t.Run("the provided document becomes the starting point for the topics requirement document", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		payload := map[string]string{
 			"name":        "Seed Doc",
@@ -120,21 +96,9 @@ func TestPreExistingDocument(t *testing.T) {
 	})
 
 	t.Run("providing a pre-existing document is optional", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		// Create topic without document field
 		payload := map[string]string{
@@ -170,21 +134,9 @@ func TestPreExistingDocument(t *testing.T) {
 	})
 
 	t.Run("non-markdown content is accepted as plain text", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		// Plain text without markdown formatting
 		payload := map[string]string{
@@ -217,21 +169,9 @@ func TestPreExistingDocument(t *testing.T) {
 	})
 
 	t.Run("the pre-existing document is preserved and not discarded", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		payload := map[string]string{
 			"name":        "Preserve Doc",

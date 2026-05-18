@@ -18,10 +18,8 @@ import (
 func TestConversationalBackAndForth(t *testing.T) {
 	t.Run("user can type a free-form text response and submit it to the AI agent", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -29,21 +27,9 @@ func TestConversationalBackAndForth(t *testing.T) {
 					}
 				}]
 			}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-chat-001"
 		store.Create(topicID, "Chat Test", "Testing chat functionality")
@@ -77,10 +63,8 @@ func TestConversationalBackAndForth(t *testing.T) {
 
 	t.Run("after the user submits a response the AI agent generates a follow-up", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -88,21 +72,9 @@ func TestConversationalBackAndForth(t *testing.T) {
 					}
 				}]
 			}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-chat-002"
 		store.Create(topicID, "Follow-up Test", "Testing follow-up questions")
@@ -142,32 +114,17 @@ func TestConversationalBackAndForth(t *testing.T) {
 
 	t.Run("the conversation is displayed as a chronological exchange of messages", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		responseCount := 0
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			responseCount++
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+responseCount++
 			w.WriteHeader(http.StatusOK)
 			if responseCount == 1 {
 				w.Write([]byte(`{"choices":[{"message":{"content":"Got it. What about user roles?"}}]}`))
 			} else {
 				w.Write([]byte(`{"choices":[{"message":{"content":"Understood. Any admin features?"}}]}`))
 			}
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-chat-003"
 		store.Create(topicID, "Chronology Test", "Testing message order")
@@ -222,27 +179,12 @@ func TestConversationalBackAndForth(t *testing.T) {
 
 	t.Run("the users message appears in the conversation immediately upon submission", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// LLM server that delays (simulated by always working)
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Processing your response..."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-chat-004"
 		store.Create(topicID, "Immediate Test", "Testing immediate message save")
@@ -280,26 +222,12 @@ func TestConversationalBackAndForth(t *testing.T) {
 
 	t.Run("the response includes an indication that the agent is processing", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Here is the follow-up question."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-chat-005"
 		store.Create(topicID, "Typing Indicator Test", "Testing response format")
@@ -339,32 +267,16 @@ func TestConversationalBackAndForth(t *testing.T) {
 
 	t.Run("the agents response is relevant to the users last message", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// Verify the LLM receives the user's latest message in the prompt
-		receivedBody := ""
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			buf := new(bytes.Buffer)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+buf := new(bytes.Buffer)
 			buf.ReadFrom(r.Body)
 			receivedBody = buf.String()
 
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"That's a great point about security."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-chat-006"
 		store.Create(topicID, "Relevance Test", "Testing response relevance")

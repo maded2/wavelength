@@ -64,34 +64,6 @@ func (s *FileStore) unlockData() {
 	_ = s.lock.Unlock()
 }
 
-// topicLockFile returns the path to a per-topic lock file.
-func (s *FileStore) topicLockFile(id string) string {
-	return filepath.Join(s.topicPath(id), ".topic.lock")
-}
-
-// lockTopic acquires a per-topic lock for safe concurrent access.
-func (s *FileStore) lockTopic(id string) (*flock.Flock, error) {
-	tPath := s.topicPath(id)
-	if err := os.MkdirAll(tPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create topic directory for lock: %w", err)
-	}
-
-	topicLock := flock.New(s.topicLockFile(id))
-	const timeout = 5 * time.Second
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = topicLock.Lock()
-	}()
-
-	select {
-	case <-done:
-		return topicLock, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("timeout acquiring topic lock for %q after %v", id, timeout)
-	}
-}
-
 // atomicWriteFile writes data to a temp file then atomically renames it to the target path.
 // This prevents corruption if the process crashes mid-write.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
@@ -153,13 +125,13 @@ func (s *FileStore) documentFile(id string) string {
 
 // topicMeta holds the serializable metadata for a topic (no messages or document).
 type topicMeta struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	MessageCount int     `json:"message_count"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	MessageCount int       `json:"message_count"`
 }
 
 // topicMessageLine is the JSONL format for a single message.
@@ -248,16 +220,16 @@ func (s *FileStore) loadTopicDir(id, dirPath string) error {
 	}
 
 	topic := &Topic{
-		ID:          meta.ID,
-		Name:        meta.Name,
-		Description: meta.Description,
-		Status:      meta.Status,
-		CreatedAt:   meta.CreatedAt,
-		UpdatedAt:   meta.UpdatedAt,
+		ID:           meta.ID,
+		Name:         meta.Name,
+		Description:  meta.Description,
+		Status:       meta.Status,
+		CreatedAt:    meta.CreatedAt,
+		UpdatedAt:    meta.UpdatedAt,
 		MessageCount: meta.MessageCount,
-		Messages:    messages,
-		Document:    document,
-		Attachments: attachments,
+		Messages:     messages,
+		Document:     document,
+		Attachments:  attachments,
 	}
 
 	s.topics[id] = topic
@@ -297,16 +269,7 @@ func (s *FileStore) migrateTopicToDir(topic *Topic) error {
 	}
 
 	// Write meta.json
-	meta := topicMeta{
-		ID:          topic.ID,
-		Name:        topic.Name,
-		Description: topic.Description,
-		Status:      topic.Status,
-		CreatedAt:   topic.CreatedAt,
-		UpdatedAt:   topic.UpdatedAt,
-		MessageCount: topic.MessageCount,
-	}
-	metaData, err := json.MarshalIndent(meta, "", "  ")
+	metaData, err := json.MarshalIndent(topic.Meta(), "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal meta: %w", err)
 	}
@@ -448,16 +411,7 @@ func (s *FileStore) saveTopicDir(id string, topic *Topic) error {
 	}
 
 	// Write meta.json atomically
-	meta := topicMeta{
-		ID:          topic.ID,
-		Name:        topic.Name,
-		Description: topic.Description,
-		Status:      topic.Status,
-		CreatedAt:   topic.CreatedAt,
-		UpdatedAt:   topic.UpdatedAt,
-		MessageCount: topic.MessageCount,
-	}
-	metaData, err := json.MarshalIndent(meta, "", "  ")
+	metaData, err := json.MarshalIndent(topic.Meta(), "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal meta: %w", err)
 	}
@@ -635,16 +589,7 @@ func (s *FileStore) persistTopicUpdate(id string, topic *Topic) error {
 	}
 
 	// Write meta.json
-	meta := topicMeta{
-		ID:          topic.ID,
-		Name:        topic.Name,
-		Description: topic.Description,
-		Status:      topic.Status,
-		CreatedAt:   topic.CreatedAt,
-		UpdatedAt:   topic.UpdatedAt,
-		MessageCount: topic.MessageCount,
-	}
-	metaData, err := json.MarshalIndent(meta, "", "  ")
+	metaData, err := json.MarshalIndent(topic.Meta(), "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal meta: %w", err)
 	}

@@ -3,13 +3,15 @@ package export
 import (
 	"strings"
 	"testing"
+
+	"wavelength/internal/topic"
 )
 
 func TestExportMarkdown(t *testing.T) {
 	content := "# Test Doc\n\nSome content here."
 	exp := New(content)
 
-	data, mimeType, ext, err := exp.Export(FormatMarkdown)
+	data, mimeType, ext, err := exp.Export(topic.FormatMarkdown)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -29,7 +31,7 @@ func TestExportPDF(t *testing.T) {
 	content := "# Requirements\n\n## Overview\n\nA test system.\n\n- Item 1\n- Item 2"
 	exp := New(content)
 
-	data, mimeType, ext, err := exp.Export(FormatPDF)
+	data, mimeType, ext, err := exp.Export(topic.FormatPDF)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -50,7 +52,7 @@ func TestExportWord(t *testing.T) {
 	content := "# Requirements\n\n## Overview\n\nA test system."
 	exp := New(content)
 
-	data, mimeType, ext, err := exp.Export(FormatWord)
+	data, mimeType, ext, err := exp.Export(topic.FormatWord)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,7 +71,7 @@ func TestExportWord(t *testing.T) {
 
 func TestExportUnsupportedFormat(t *testing.T) {
 	exp := New("content")
-	_, _, _, err := exp.Export(Format("rtf"))
+	_, _, _, err := exp.Export(topic.Format("rtf"))
 	if err == nil {
 		t.Error("expected error for unsupported format, got nil")
 	}
@@ -82,7 +84,7 @@ func TestExportEmptyContent(t *testing.T) {
 	exp := New("")
 
 	// Markdown should return empty bytes
-	data, _, _, err := exp.Export(FormatMarkdown)
+	data, _, _, err := exp.Export(topic.FormatMarkdown)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,7 +93,7 @@ func TestExportEmptyContent(t *testing.T) {
 	}
 
 	// PDF should still generate a valid (empty page) PDF
-	data, _, _, err = exp.Export(FormatPDF)
+	data, _, _, err = exp.Export(topic.FormatPDF)
 	if err != nil {
 		t.Fatalf("unexpected error for empty PDF: %v", err)
 	}
@@ -100,7 +102,7 @@ func TestExportEmptyContent(t *testing.T) {
 	}
 
 	// Word should still generate a valid DOCX
-	data, _, _, err = exp.Export(FormatWord)
+	data, _, _, err = exp.Export(topic.FormatWord)
 	if err != nil {
 		t.Fatalf("unexpected error for empty Word: %v", err)
 	}
@@ -137,7 +139,7 @@ code block
 	exp := New(content)
 
 	// All formats should handle complex content without error
-	for _, format := range []Format{FormatMarkdown, FormatPDF, FormatWord} {
+	for _, format := range []topic.Format{topic.FormatMarkdown, topic.FormatPDF, topic.FormatWord} {
 		_, _, _, err := exp.Export(format)
 		if err != nil {
 			t.Errorf("format %s failed with complex content: %v", format, err)

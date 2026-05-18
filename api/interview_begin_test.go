@@ -20,11 +20,8 @@ import (
 func TestBeginInterview(t *testing.T) {
 	t.Run("user can initiate the interview process from a topic", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// Mock LLM server that returns a business analyst introduction
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -32,21 +29,9 @@ func TestBeginInterview(t *testing.T) {
 					}
 				}]
 			}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-interview-001"
 		store.Create(topicID, "Craft Store", "An online store for selling handmade crafts")
@@ -82,10 +67,8 @@ func TestBeginInterview(t *testing.T) {
 
 	t.Run("the AI agent introduces itself as a business analyst", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -93,21 +76,9 @@ func TestBeginInterview(t *testing.T) {
 					}
 				}]
 			}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-interview-002"
 		store.Create(topicID, "Test App", "A test application")
@@ -134,12 +105,8 @@ func TestBeginInterview(t *testing.T) {
 
 	t.Run("the agents first message references the high-level requirement", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// Verify the LLM receives the topic description in the prompt
-		receivedPrompt := ""
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Read the request body to check it contains the requirement
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+// Read the request body to check it contains the requirement
 			buf := new(strings.Builder)
 			io.Copy(buf, r.Body)
 			receivedPrompt = buf.String()
@@ -152,21 +119,9 @@ func TestBeginInterview(t *testing.T) {
 					}
 				}]
 			}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-interview-003"
 		store.Create(topicID, "Inventory System", "A system to manage warehouse inventory with barcode scanning")
@@ -189,10 +144,8 @@ func TestBeginInterview(t *testing.T) {
 
 	t.Run("if no high-level requirement is provided the agent asks the user to describe their idea", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -200,21 +153,9 @@ func TestBeginInterview(t *testing.T) {
 					}
 				}]
 			}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-interview-004"
 		// Create topic with empty description (edge case)
@@ -242,10 +183,8 @@ func TestBeginInterview(t *testing.T) {
 
 	t.Run("the conversation is displayed with clear message ownership", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -253,21 +192,9 @@ func TestBeginInterview(t *testing.T) {
 					}
 				}]
 			}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-interview-005"
 		store.Create(topicID, "Chat Test", "Testing chat format")

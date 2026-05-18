@@ -16,20 +16,9 @@ import (
 
 func TestDocumentFlashIndicator(t *testing.T) {
 	t.Run("topic page includes the document flash indicator element", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		// Serve the topic page
 		req := httptest.NewRequest("GET", "/topics/test", nil)
@@ -52,20 +41,9 @@ func TestDocumentFlashIndicator(t *testing.T) {
 	})
 
 	t.Run("topic page includes the flash animation CSS", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/topics/test", nil)
 		resp, err := app.Test(req)
@@ -90,20 +68,9 @@ func TestDocumentFlashIndicator(t *testing.T) {
 	})
 
 	t.Run("topic page includes the flashDocumentPanel JavaScript function", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/topics/test", nil)
 		resp, err := app.Test(req)
@@ -125,20 +92,9 @@ func TestDocumentFlashIndicator(t *testing.T) {
 	})
 
 	t.Run("doc-panel has an id for JavaScript targeting", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/topics/test", nil)
 		resp, err := app.Test(req)

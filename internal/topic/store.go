@@ -9,10 +9,10 @@ import (
 
 // Attachment represents an uploaded document attached to a topic.
 type Attachment struct {
-	ID        string    `json:"id"`
-	Filename  string    `json:"filename"`
-	Format    string    `json:"format"` // "markdown", "pdf", "word"
-	Size      int64     `json:"size"`
+	ID         string    `json:"id"`
+	Filename   string    `json:"filename"`
+	Format     string    `json:"format"` // "markdown", "pdf", "word"
+	Size       int64     `json:"size"`
 	UploadedAt time.Time `json:"uploaded_at"`
 	// MarkdownContent holds the converted markdown text (for LLM context)
 	MarkdownContent string `json:"markdown_content,omitempty"`
@@ -20,16 +20,16 @@ type Attachment struct {
 
 // Topic represents a requirement-gathering initiative.
 type Topic struct {
-	ID            string       `json:"id"`
-	Name          string       `json:"name"`
-	Description   string       `json:"description"`
-	Status        string       `json:"status"` // "not_started", "active", "completed"
-	CreatedAt     time.Time    `json:"created_at"`
-	UpdatedAt     time.Time    `json:"updated_at"`
-	MessageCount  int          `json:"message_count"`
-	Messages      []Message    `json:"messages"`
-	Document      string       `json:"document"`
-	Attachments   []Attachment `json:"attachments,omitempty"`
+	ID           string       `json:"id"`
+	Name         string       `json:"name"`
+	Description  string       `json:"description"`
+	Status       string       `json:"status"` // "not_started", "active", "completed"
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+	MessageCount int          `json:"message_count"`
+	Messages     []Message    `json:"messages"`
+	Document     string       `json:"document"`
+	Attachments  []Attachment `json:"attachments,omitempty"`
 }
 
 // Message represents a single exchange in a conversation.

@@ -7,10 +7,13 @@ data/
 
 # Go test cache
 *.out
+*.test
 
 # OS files
 .DS_Store
 Thumbs.db
+
+deepseek.json
 
 # IDE
 .idea/

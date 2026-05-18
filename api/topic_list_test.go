@@ -19,20 +19,9 @@ import (
 
 func TestTopicList(t *testing.T) {
 	t.Run("the topic list displays every topic that has been created", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		// Create 3 topics
 		for i := 1; i <= 3; i++ {
@@ -61,20 +50,9 @@ func TestTopicList(t *testing.T) {
 	})
 
 	t.Run("each topic entry shows the topic name, status, and last updated time", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		store.Create("topic-0000000000000000001", "My Topic", "A test topic")
 
@@ -114,20 +92,9 @@ func TestTopicList(t *testing.T) {
 	})
 
 	t.Run("the list distinguishes between topics that have started interviews and those that have not", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		// Create a topic that hasn't started
 		store.Create("topic-not-started", "Not Started", "No interview yet")
@@ -164,20 +131,9 @@ func TestTopicList(t *testing.T) {
 	})
 
 	t.Run("the list is ordered with the most recently updated topics first", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		// Create topics with different update times
 		oldTopic := store.Create("topic-old", "Old Topic", "Created first")
@@ -210,20 +166,9 @@ func TestTopicList(t *testing.T) {
 	})
 
 	t.Run("if there are no topics the list shows a helpful message", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/api/topics", nil)
 		resp, err := app.Test(req)

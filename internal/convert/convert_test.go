@@ -3,22 +3,24 @@ package convert
 import (
 	"strings"
 	"testing"
+
+	"wavelength/internal/topic"
 )
 
 func TestDetectFormat(t *testing.T) {
 	tests := []struct {
 		name     string
 		filename string
-		want     Format
+		want     topic.Format
 		wantErr  bool
 	}{
-		{"markdown .md", "document.md", FormatMarkdown, false},
-		{"markdown .markdown", "document.markdown", FormatMarkdown, false},
-		{"markdown uppercase", "DOCUMENT.MD", FormatMarkdown, false},
-		{"pdf", "document.pdf", FormatPDF, false},
-		{"pdf uppercase", "DOCUMENT.PDF", FormatPDF, false},
-		{"word docx", "document.docx", FormatWord, false},
-		{"word uppercase", "DOCUMENT.DOCX", FormatWord, false},
+		{"markdown .md", "document.md", topic.FormatMarkdown, false},
+		{"markdown .markdown", "document.markdown", topic.FormatMarkdown, false},
+		{"markdown uppercase", "DOCUMENT.MD", topic.FormatMarkdown, false},
+		{"pdf", "document.pdf", topic.FormatPDF, false},
+		{"pdf uppercase", "DOCUMENT.PDF", topic.FormatPDF, false},
+		{"word docx", "document.docx", topic.FormatWord, false},
+		{"word uppercase", "DOCUMENT.DOCX", topic.FormatWord, false},
 		{"unsupported txt", "document.txt", "", true},
 		{"unsupported jpg", "image.jpg", "", true},
 		{"unsupported doc", "document.doc", "", true},
@@ -52,14 +54,14 @@ func TestConvertMarkdown(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "simple markdown",
+			name:  "simple markdown",
 			input: "# Hello\n\nThis is a test document.\n\n## Section\n\n- Item 1\n- Item 2",
-			want: "# Hello\n\nThis is a test document.\n\n## Section\n\n- Item 1\n- Item 2",
+			want:  "# Hello\n\nThis is a test document.\n\n## Section\n\n- Item 1\n- Item 2",
 		},
 		{
-			name: "whitespace trimmed",
+			name:  "whitespace trimmed",
 			input: "  \n  # Title  \n\n  Content  \n  ",
-			want: "# Title  \n\n  Content",
+			want:  "# Title  \n\n  Content",
 		},
 		{
 			name:    "empty",

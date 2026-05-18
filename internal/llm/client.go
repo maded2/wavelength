@@ -271,7 +271,111 @@ func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt s
 
 // Message represents a chat message for the LLM API.
 type Message struct {
-	Role      string `json:"role"`
-	Content   string `json:"content"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
 	Timestamp time.Time `json:"timestamp,omitempty"`
+}
+
+// Call sends a chat completion request to the LLM and returns the assistant's
+// response content. It handles payload construction, HTTP transport, and response
+// parsing in one call.
+func (c *Client) Call(ctx context.Context, messages []Message) (string, error) {
+	payload := map[string]interface{}{
+		"model":    c.cfg.LLM.Model,
+		"messages": c.buildMessagePayload(messages),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[LLM] ERROR marshalling payload: %v", err)
+		return "", fmt.Errorf("failed to prepare LLM request: %v", err)
+	}
+
+	apiURL := c.APIURL()
+	log.Printf("[LLM] Sending POST to %s (body size: %d bytes)", apiURL, len(body))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
+	if err != nil {
+		log.Printf("[LLM] ERROR creating HTTP request: %v", err)
+		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpClient := &http.Client{Timeout: time.Duration(c.cfg.LLM.Timeout) * time.Second}
+	start := time.Now()
+
+	log.Printf("[LLM] Sending HTTP request to LLM...")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		elapsed := time.Since(start)
+		log.Printf("[LLM] ERROR HTTP request failed after %v: %v", elapsed, err)
+		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
+	}
+	defer resp.Body.Close()
+
+	elapsed := time.Since(start)
+	log.Printf("[LLM] HTTP response received in %v: status=%d", elapsed, resp.StatusCode)
+
+	// Read response body for logging
+	var respBody bytes.Buffer
+	_, err = respBody.ReadFrom(resp.Body)
+	if err != nil {
+		log.Printf("[LLM] ERROR reading response body: %v", err)
+		return "", fmt.Errorf("failed to read LLM response: %v", err)
+	}
+	respBodyStr := respBody.String()
+	log.Printf("[LLM] Response body (truncated): %.1000q", respBodyStr)
+
+	if resp.StatusCode >= 400 {
+		log.Printf("[LLM] ERROR LLM returned status %d: %s", resp.StatusCode, respBodyStr)
+		return "", fmt.Errorf("LLM service error: status %d", resp.StatusCode)
+	}
+
+	return c.parseResponse(&respBody)
+}
+
+// buildMessagePayload converts a slice of Message into the JSON payload format.
+func (c *Client) buildMessagePayload(messages []Message) []map[string]string {
+	payload := make([]map[string]string, 0, len(messages))
+	for _, m := range messages {
+		payload = append(payload, map[string]string{"role": m.Role, "content": m.Content})
+	}
+	return payload
+}
+
+// parseResponse extracts the assistant's content from an LLM API JSON response.
+func (c *Client) parseResponse(respBody *bytes.Buffer) (string, error) {
+	var result map[string]interface{}
+	if err := json.NewDecoder(respBody).Decode(&result); err != nil {
+		log.Printf("[LLM] ERROR parsing JSON response: %v", err)
+		return "", fmt.Errorf("failed to parse LLM response: %v", err)
+	}
+
+	choices, ok := result["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		log.Printf("[LLM] ERROR no choices in response: %#v", result)
+		return "", fmt.Errorf("LLM returned no response")
+	}
+
+	firstChoice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		log.Printf("[LLM] ERROR invalid choices[0] type: %#v", choices[0])
+		return "", fmt.Errorf("invalid LLM response format")
+	}
+
+	message, ok := firstChoice["message"].(map[string]interface{})
+	if !ok {
+		log.Printf("[LLM] ERROR no message in first choice: %#v", firstChoice)
+		return "", fmt.Errorf("invalid LLM response format")
+	}
+
+	content, ok := message["content"].(string)
+	if !ok {
+		log.Printf("[LLM] ERROR no content in message: %#v", message)
+		return "", fmt.Errorf("LLM returned empty content")
+	}
+
+	log.Printf("[LLM] Success! Response length: %d chars", len(content))
+	return content, nil
 }

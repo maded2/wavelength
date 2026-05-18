@@ -19,27 +19,12 @@ import (
 func TestContextManagement(t *testing.T) {
 	t.Run("long conversations do not produce technical context limit errors", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// LLM server that simulates context limit error
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusRequestEntityTooLarge)
 			w.Write([]byte(`{"error":"context length exceeded"}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-context-001"
 		store.Create(topicID, "Long Conv", "Testing context management")
@@ -76,26 +61,12 @@ func TestContextManagement(t *testing.T) {
 
 	t.Run("the user sees a user-friendly message when context management occurs", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusRequestEntityTooLarge)
 			w.Write([]byte(`{"error":"context length exceeded"}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-context-002"
 		store.Create(topicID, "Friendly Error", "Testing friendly error messages")
@@ -134,26 +105,12 @@ func TestContextManagement(t *testing.T) {
 
 	t.Run("the users message is preserved even when context limits are reached", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+w.WriteHeader(http.StatusRequestEntityTooLarge)
 			w.Write([]byte(`{"error":"context length exceeded"}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-context-003"
 		store.Create(topicID, "Preserve Msg", "Testing message preservation")
@@ -196,12 +153,8 @@ func TestContextManagement(t *testing.T) {
 
 	t.Run("the conversation state remains intact for resumption after context issues", func(t *testing.T) {
 		app := fiber.New()
-		store := topic.NewStore()
-
-		// First call works, second call hits context limit
-		callCount := 0
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			callCount++
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+callCount++
 			if callCount == 1 {
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(`{"choices":[{"message":{"content":"Got it."}}]}`))
@@ -209,21 +162,9 @@ func TestContextManagement(t *testing.T) {
 				w.WriteHeader(http.StatusRequestEntityTooLarge)
 				w.Write([]byte(`{"error":"context length exceeded"}`))
 			}
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		})
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-context-004"
 		store.Create(topicID, "Resume After", "Testing resume after context issue")

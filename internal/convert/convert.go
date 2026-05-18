@@ -10,19 +10,11 @@ import (
 	"strings"
 
 	"github.com/ledongthuc/pdf"
+	"wavelength/internal/topic"
 )
 
 // MaxUploadSize is the maximum allowed upload size (10 MB).
 const MaxUploadSize = 10 * 1024 * 1024
-
-// Format represents a supported document format.
-type Format string
-
-const (
-	FormatMarkdown Format = "markdown"
-	FormatPDF      Format = "pdf"
-	FormatWord     Format = "word" // .docx
-)
 
 // Converter converts various document formats to markdown.
 type Converter struct{}
@@ -33,15 +25,15 @@ func New() *Converter {
 }
 
 // DetectFormat determines the document format from the file extension.
-func DetectFormat(filename string) (Format, error) {
+func DetectFormat(filename string) (topic.Format, error) {
 	ext := strings.ToLower(filename)
 	switch {
 	case strings.HasSuffix(ext, ".md") || strings.HasSuffix(ext, ".markdown"):
-		return FormatMarkdown, nil
+		return topic.FormatMarkdown, nil
 	case strings.HasSuffix(ext, ".pdf"):
-		return FormatPDF, nil
+		return topic.FormatPDF, nil
 	case strings.HasSuffix(ext, ".docx"):
-		return FormatWord, nil
+		return topic.FormatWord, nil
 	default:
 		return "", fmt.Errorf("unsupported file format: %q (supported: .md, .pdf, .docx)", filename)
 	}
@@ -55,11 +47,11 @@ func (c *Converter) Convert(r io.Reader, filename string) (string, error) {
 	}
 
 	switch format {
-	case FormatMarkdown:
+	case topic.FormatMarkdown:
 		return c.convertMarkdown(r)
-	case FormatPDF:
+	case topic.FormatPDF:
 		return c.convertPDF(r)
-	case FormatWord:
+	case topic.FormatWord:
 		return c.convertWord(r)
 	default:
 		return "", fmt.Errorf("unsupported format: %s", format)

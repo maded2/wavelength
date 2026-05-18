@@ -16,15 +16,9 @@ import (
 
 func TestDownloadDocument(t *testing.T) {
 	t.Run("download markdown format returns correct content type and data", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server:  config.ServerConfig{Port: 3000},
-			LLM:     config.LLMConfig{Provider: "openai", Model: "gpt-4", Endpoint: "http://localhost:11434", APIKey: "test-key"},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-dl-001"
 		tp := store.Create(topicID, "My Topic", "Test topic")
@@ -53,15 +47,9 @@ func TestDownloadDocument(t *testing.T) {
 	})
 
 	t.Run("download pdf format returns valid PDF header", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server:  config.ServerConfig{Port: 3000},
-			LLM:     config.LLMConfig{Provider: "openai", Model: "gpt-4", Endpoint: "http://localhost:11434", APIKey: "test-key"},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-dl-002"
 		tp := store.Create(topicID, "PDF Topic", "Test PDF")
@@ -90,15 +78,9 @@ func TestDownloadDocument(t *testing.T) {
 	})
 
 	t.Run("download word format returns valid DOCX header", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server:  config.ServerConfig{Port: 3000},
-			LLM:     config.LLMConfig{Provider: "openai", Model: "gpt-4", Endpoint: "http://localhost:11434", APIKey: "test-key"},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-dl-003"
 		tp := store.Create(topicID, "Word Topic", "Test Word")
@@ -127,15 +109,9 @@ func TestDownloadDocument(t *testing.T) {
 	})
 
 	t.Run("download defaults to markdown when no format specified", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server:  config.ServerConfig{Port: 3000},
-			LLM:     config.LLMConfig{Provider: "openai", Model: "gpt-4", Endpoint: "http://localhost:11434", APIKey: "test-key"},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-dl-004"
 		tp := store.Create(topicID, "Default Format", "Test default")
@@ -159,15 +135,9 @@ func TestDownloadDocument(t *testing.T) {
 	})
 
 	t.Run("download returns 404 for non-existent topic", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server:  config.ServerConfig{Port: 3000},
-			LLM:     config.LLMConfig{Provider: "openai", Model: "gpt-4", Endpoint: "http://localhost:11434", APIKey: "test-key"},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/api/topics/nonexistent/document/download", nil)
 		resp, err := app.Test(req)
@@ -188,15 +158,9 @@ func TestDownloadDocument(t *testing.T) {
 	})
 
 	t.Run("download returns 400 for unsupported format", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server:  config.ServerConfig{Port: 3000},
-			LLM:     config.LLMConfig{Provider: "openai", Model: "gpt-4", Endpoint: "http://localhost:11434", APIKey: "test-key"},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-dl-005"
 		store.Create(topicID, "Bad Format", "Test bad format")
@@ -220,15 +184,9 @@ func TestDownloadDocument(t *testing.T) {
 	})
 
 	t.Run("download sets Content-Disposition header for file download", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server:  config.ServerConfig{Port: 3000},
-			LLM:     config.LLMConfig{Provider: "openai", Model: "gpt-4", Endpoint: "http://localhost:11434", APIKey: "test-key"},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-dl-006"
 		store.Create(topicID, "Download Header Test", "Test headers")
