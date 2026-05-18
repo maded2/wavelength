@@ -2,8 +2,12 @@ package llm_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,11 +19,22 @@ import (
 
 func TestLLMClientConnectivityCheck(t *testing.T) {
 	t.Run("connectivity check succeeds when LLM endpoint is reachable", func(t *testing.T) {
-		// Create a test server that responds to connectivity checks
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"ok"}`))
-		}))
+		server := newOpenAITestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			checkRequestPath(t, r, "/chat/completions")
+
+			resp := map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Hello!",
+						},
+					},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		})
 		defer server.Close()
 
 		cfg := &config.Config{
@@ -46,7 +61,7 @@ func TestLLMClientConnectivityCheck(t *testing.T) {
 			LLM: config.LLMConfig{
 				Provider: "openai",
 				Model:    "gpt-4",
-				Endpoint: "http://localhost:59999", // non-existent server
+				Endpoint: "http://localhost:59999",
 				APIKey:   "test-key",
 			},
 		}
@@ -59,18 +74,16 @@ func TestLLMClientConnectivityCheck(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for unreachable endpoint, got nil")
 		}
-		errMsg := err.Error()
-		if len(errMsg) == 0 {
-			t.Error("expected descriptive error message for connectivity failure")
+		if err != nil && !strings.HasPrefix(err.Error(), "cannot connect to LLM service:") {
+			t.Errorf("expected error message to start with 'cannot connect to LLM service:', got: %v", err)
 		}
 	})
 
 	t.Run("connectivity check fails with clear error when credentials are invalid", func(t *testing.T) {
-		// Create a test server that returns 401 for invalid credentials
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := newOpenAITestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error":"invalid api key"}`))
-		}))
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid api key"})
+		})
 		defer server.Close()
 
 		cfg := &config.Config{
@@ -90,6 +103,9 @@ func TestLLMClientConnectivityCheck(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for invalid credentials, got nil")
 		}
+		if err != nil && !strings.HasPrefix(err.Error(), "cannot connect to LLM service:") {
+			t.Errorf("expected error message to start with 'cannot connect to LLM service:', got: %v", err)
+		}
 	})
 
 	t.Run("connectivity check does not panic or hang on malformed endpoint", func(t *testing.T) {
@@ -106,10 +122,183 @@ func TestLLMClientConnectivityCheck(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		// Should return an error, not panic
 		err := client.CheckConnectivity(ctx)
 		if err == nil {
 			t.Error("expected error for malformed endpoint, got nil")
 		}
 	})
+}
+
+func TestLLMClientCall(t *testing.T) {
+	t.Run("non-streaming call returns assistant response", func(t *testing.T) {
+		server := newOpenAITestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			checkRequestPath(t, r, "/chat/completions")
+			w.Header().Set("Content-Type", "application/json")
+
+			resp := map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": "This is a test response.",
+						},
+					},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		})
+		defer server.Close()
+
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: server.URL,
+				APIKey:   "test-key",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx := context.Background()
+
+		response, err := client.Call(ctx, []llm.Message{
+			{Role: "user", Content: "Hello"},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if response != "This is a test response." {
+			t.Errorf("expected 'This is a test response.', got %q", response)
+		}
+	})
+
+	t.Run("non-streaming call returns error on server error", func(t *testing.T) {
+		server := newOpenAITestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "server error"})
+		})
+		defer server.Close()
+
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: server.URL,
+				APIKey:   "test-key",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx := context.Background()
+
+		_, err := client.Call(ctx, []llm.Message{
+			{Role: "user", Content: "Hello"},
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "LLM service error") {
+			t.Errorf("expected 'LLM service error' in error, got: %v", err)
+		}
+	})
+}
+
+func TestLLMClientStreamResponse(t *testing.T) {
+	t.Run("streaming returns token events then done", func(t *testing.T) {
+		server := newOpenAITestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			checkRequestPath(t, r, "/chat/completions")
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+
+			// Simulate SSE stream with two tokens
+			fmt.Fprintf(w, "data: %s\n\n", toJSON(t, map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{
+						"delta": map[string]interface{}{
+							"content": "Hello",
+						},
+					},
+				},
+			}))
+			fmt.Fprintf(w, "data: %s\n\n", toJSON(t, map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{
+						"delta": map[string]interface{}{
+							"content": " world!",
+						},
+					},
+				},
+			}))
+			fmt.Fprintf(w, "data: [DONE]\n\n")
+		})
+		defer server.Close()
+
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: server.URL,
+				APIKey:   "test-key",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx := context.Background()
+
+		var events []string
+		pr, pw := io.Pipe()
+
+		go func() {
+			err := client.StreamResponse(ctx, pw, "You are a helpful assistant.", nil)
+			pw.Close()
+			if err != nil {
+				t.Errorf("StreamResponse returned error: %v", err)
+			}
+		}()
+
+		// Read all events from pipe
+		decoder := json.NewDecoder(pr)
+		for {
+			var event map[string]interface{}
+			if err := decoder.Decode(&event); err != nil {
+				break
+			}
+			events = append(events, event["type"].(string))
+		}
+
+		if len(events) < 2 {
+			t.Fatalf("expected at least 2 events (tokens + done), got %d: %v", len(events), events)
+		}
+		if events[len(events)-1] != "done" {
+			t.Errorf("expected last event to be 'done', got %q", events[len(events)-1])
+		}
+	})
+}
+
+// --- Test helpers ---
+
+// newOpenAITestServer creates a test server. The eino openai client appends
+// /chat/completions to the base URL, so the handler should be set up to respond
+// on any request path.
+func newOpenAITestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler(w, r)
+	}))
+}
+
+func checkRequestPath(t *testing.T, r *http.Request, expected string) {
+	t.Helper()
+	if r.URL.Path != expected {
+		t.Errorf("expected request path %q, got %q", expected, r.URL.Path)
+	}
+}
+
+func toJSON(t *testing.T, v interface{}) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("failed to marshal JSON: %v", err)
+	}
+	return string(data)
 }

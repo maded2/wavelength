@@ -187,7 +187,7 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 		}
 
 		// Default to markdown, accept ?format=pdf or ?format=word
-		format := export.Format(strings.ToLower(c.Query("format", "markdown")))
+		format := topicpkg.Format(strings.ToLower(c.Query("format", "markdown")))
 
 		exp := export.New(topic.Document)
 		data, mimeType, ext, err := exp.Export(format)
@@ -379,8 +379,13 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 		// (FileStore.Get returns a copy, so the old reference is stale)
 		topic = store.Get(topicID)
 
-		// Try to get AI agent response
-		assistantResponse, err := generateResponse(client, topic, req.Content)
+		// Build prompt and call LLM via client
+		prompt := buildConversationContext(topic, req.Content)
+		llmMessages := []llm.Message{
+			{Role: "system", Content: client.PersonaPrompt()},
+			{Role: "user", Content: prompt},
+		}
+		assistantResponse, err := client.Call(c.Context(), llmMessages)
 		if err != nil {
 			// LLM failed — return user-friendly error but user message is preserved
 			return c.Status(http.StatusOK).JSON(fiber.Map{
@@ -473,12 +478,12 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 		// Build conversation messages for streaming (includes attachments in context)
 		prompt := buildConversationContext(topic, req.Content)
 
-		// Build messages array for streaming
-		messages := make([]llm.Message, 0, len(topic.Messages))
+		// Build messages array for streaming (without system prompt — passed separately)
+		llmMessages := make([]llm.Message, 0, len(topic.Messages))
 		for _, msg := range topic.Messages {
-			messages = append(messages, llm.Message{Role: msg.Role, Content: msg.Content})
+			llmMessages = append(llmMessages, llm.Message{Role: msg.Role, Content: msg.Content})
 		}
-		messages = append(messages, llm.Message{Role: "user", Content: prompt})
+		llmMessages = append(llmMessages, llm.Message{Role: "user", Content: prompt})
 
 		// Capture a valid context before spawning goroutine — Fiber's context
 		// can become nil/cancelled once the request handler returns.
@@ -516,7 +521,7 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 			json.NewEncoder(tee).Encode(startEvent)
 
 			// Stream LLM response — tokens go to both HTTP response and capture buffer
-			streamErr := client.StreamResponse(streamCtx, tee, client.PersonaPrompt(), messages)
+			streamErr := client.StreamResponse(streamCtx, tee, client.PersonaPrompt(), llmMessages)
 			if streamErr != nil {
 				log.Printf("[LLM-STREAM] ERROR streaming response for topic %q: %v", topicID, streamErr)
 				errEvent := map[string]interface{}{
@@ -630,7 +635,11 @@ Remember to maintain the document in markdown format and wrap any updated docume
 	)
 
 	// Send re-evaluation prompt to the LLM
-	assistantResponse, err := generateReevaluateResponse(client, topic, reevalPrompt)
+	reevalMessages := []llm.Message{
+		{Role: "system", Content: client.PersonaPrompt()},
+		{Role: "user", Content: reevalPrompt},
+	}
+	assistantResponse, err := client.Call(context.Background(), reevalMessages)
 	if err != nil {
 		return c.Status(http.StatusOK).JSON(fiber.Map{
 			"success": false,
@@ -670,102 +679,7 @@ Remember to maintain the document in markdown format and wrap any updated docume
 	})
 }
 
-// generateReevaluateResponse sends a re-evaluation prompt to the LLM without conversation history.
-func generateReevaluateResponse(client *llm.Client, t *topicpkg.Topic, prompt string) (string, error) {
-	log.Printf("[REEVAL] === Request for topic %q (model=%s, timeout=%ds) ===", t.ID, client.Model(), client.Timeout())
-
-	timeout := time.Duration(client.Timeout()) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	payload := map[string]interface{}{
-		"model": client.Model(),
-		"messages": []map[string]string{
-			{"role": "system", "content": client.PersonaPrompt()},
-			{"role": "user", "content": prompt},
-		},
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("[REEVAL] ERROR marshalling payload: %v", err)
-		return "", fmt.Errorf("failed to prepare LLM request: %v", err)
-	}
-
-	apiURL := client.APIURL()
-	log.Printf("[REEVAL] Sending POST to %s (body size: %d bytes)", apiURL, len(body))
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
-	if err != nil {
-		log.Printf("[REEVAL] ERROR creating HTTP request: %v", err)
-		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+client.APIKey())
-	req.Header.Set("Content-Type", "application/json")
-
-	httpClient := &http.Client{Timeout: timeout}
-	start := time.Now()
-
-	log.Printf("[REEVAL] Sending HTTP request to LLM...")
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		elapsed := time.Since(start)
-		log.Printf("[REEVAL] ERROR HTTP request failed after %v: %v", elapsed, err)
-		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
-	}
-	defer resp.Body.Close()
-
-	elapsed := time.Since(start)
-	log.Printf("[REEVAL] HTTP response received in %v: status=%d", elapsed, resp.StatusCode)
-
-	// Read response body for logging
-	var respBody bytes.Buffer
-	_, readErr := respBody.ReadFrom(resp.Body)
-	if readErr != nil {
-		log.Printf("[REEVAL] ERROR reading response body: %v", readErr)
-	}
-	respBodyStr := respBody.String()
-
-	if resp.StatusCode >= 400 {
-		log.Printf("[REEVAL] ERROR LLM returned status %d: %s", resp.StatusCode, respBodyStr)
-		return "", fmt.Errorf("LLM service error: status %d", resp.StatusCode)
-	}
-
-	log.Printf("[REEVAL] Response body (truncated): %.1000q", respBodyStr)
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(&respBody).Decode(&result); err != nil {
-		log.Printf("[REEVAL] ERROR parsing JSON response: %v", err)
-		return "", fmt.Errorf("failed to parse LLM response: %v", err)
-	}
-
-	choices, ok := result["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		log.Printf("[REEVAL] ERROR no choices in response: %#v", result)
-		return "", fmt.Errorf("LLM returned no response")
-	}
-
-	firstChoice, ok := choices[0].(map[string]interface{})
-	if !ok {
-		log.Printf("[REEVAL] ERROR invalid choices[0] type: %#v", choices[0])
-		return "", fmt.Errorf("invalid LLM response format")
-	}
-
-	message, ok := firstChoice["message"].(map[string]interface{})
-	if !ok {
-		log.Printf("[REEVAL] ERROR no message in first choice: %#v", firstChoice)
-		return "", fmt.Errorf("invalid LLM response format")
-	}
-
-	content, ok := message["content"].(string)
-	if !ok {
-		log.Printf("[REEVAL] ERROR no content in message: %#v", message)
-		return "", fmt.Errorf("LLM returned empty content")
-	}
-
-	log.Printf("[REEVAL] Success! Response length: %d chars", len(content))
-	return content, nil
-}
+// (Re-evaluation now handled inline via client.Call) -- no separate function needed.
 
 // maxContextChars is the approximate character limit for conversation context.
 // This is a conservative estimate to stay well within typical LLM context windows.
@@ -918,109 +832,7 @@ func summarizeMessages(messages []topicpkg.Message) string {
 	return buf.String()
 }
 
-// generateResponse calls the LLM to generate a response based on the conversation history.
-// It applies context management (summarization) when conversations grow large.
-func generateResponse(client *llm.Client, t *topicpkg.Topic, userMessage string) (string, error) {
-	log.Printf("[LLM] === Request for topic %q ===", t.ID)
-
-	timeout := time.Duration(client.Timeout()) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	// Build conversation context with automatic summarization for long conversations
-	prompt := buildConversationContext(t, userMessage)
-
-	log.Printf("[LLM] Prompt (truncated): %.500q", prompt)
-
-	payload := map[string]interface{}{
-		"model": client.Model(),
-		"messages": []map[string]string{
-			{"role": "system", "content": client.PersonaPrompt()},
-			{"role": "user", "content": prompt},
-		},
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("[LLM] ERROR marshalling payload: %v", err)
-		return "", fmt.Errorf("failed to prepare LLM request: %v", err)
-	}
-
-	apiURL := client.APIURL()
-	log.Printf("[LLM] Sending POST to %s (body size: %d bytes)", apiURL, len(body))
-	log.Printf("[LLM] Model: %s, Timeout: %ds", client.Model(), client.Timeout())
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
-	if err != nil {
-		log.Printf("[LLM] ERROR creating HTTP request: %v", err)
-		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+client.APIKey())
-	req.Header.Set("Content-Type", "application/json")
-
-	httpClient := &http.Client{Timeout: timeout}
-	start := time.Now()
-
-	log.Printf("[LLM] Sending HTTP request to LLM...")
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		elapsed := time.Since(start)
-		log.Printf("[LLM] ERROR HTTP request failed after %v: %v", elapsed, err)
-		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
-	}
-	defer resp.Body.Close()
-
-	elapsed := time.Since(start)
-	log.Printf("[LLM] HTTP response received in %v: status=%d", elapsed, resp.StatusCode)
-
-	// Read response body for logging
-	var respBody bytes.Buffer
-	_, err = respBody.ReadFrom(resp.Body)
-	if err != nil {
-		log.Printf("[LLM] ERROR reading response body: %v", err)
-		return "", fmt.Errorf("failed to read LLM response: %v", err)
-	}
-	respBodyStr := respBody.String()
-	log.Printf("[LLM] Response body (truncated): %.1000q", respBodyStr)
-
-	if resp.StatusCode >= 400 {
-		log.Printf("[LLM] ERROR LLM returned status %d: %s", resp.StatusCode, respBodyStr)
-		return "", fmt.Errorf("LLM service error: status %d", resp.StatusCode)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(&respBody).Decode(&result); err != nil {
-		log.Printf("[LLM] ERROR parsing JSON response: %v", err)
-		return "", fmt.Errorf("failed to parse LLM response: %v", err)
-	}
-
-	choices, ok := result["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		log.Printf("[LLM] ERROR no choices in response: %#v", result)
-		return "", fmt.Errorf("LLM returned no response")
-	}
-
-	firstChoice, ok := choices[0].(map[string]interface{})
-	if !ok {
-		log.Printf("[LLM] ERROR invalid choices[0] type: %#v", choices[0])
-		return "", fmt.Errorf("invalid LLM response format")
-	}
-
-	message, ok := firstChoice["message"].(map[string]interface{})
-	if !ok {
-		log.Printf("[LLM] ERROR no message in first choice: %#v", firstChoice)
-		return "", fmt.Errorf("invalid LLM response format")
-	}
-
-	content, ok := message["content"].(string)
-	if !ok {
-		log.Printf("[LLM] ERROR no content in message: %#v", message)
-		return "", fmt.Errorf("LLM returned empty content")
-	}
-
-	log.Printf("[LLM] Success! Response length: %d chars", len(content))
-	return content, nil
-}
+// (Non-streaming response now handled inline via client.Call) -- no separate function needed.
 
 // extractDocument parses an LLM response to separate the conversational portion from
 // any embedded requirements document. Documents are expected to be wrapped in unique

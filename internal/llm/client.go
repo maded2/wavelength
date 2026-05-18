@@ -1,73 +1,203 @@
 package llm
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"net/http"
-	"strings"
+	"sync"
 	"time"
+
+	"github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 
 	"wavelength/internal/config"
 )
 
-// Client represents an LLM client that can check connectivity to the configured endpoint.
+// Client wraps an eino ChatModel to provide LLM interactions (both streaming and non-streaming).
+// The underlying eino model is created lazily on first use and cached thereafter.
 type Client struct {
-	cfg *config.Config
+	cfg       *config.Config
+	chatModel *openai.ChatModel
+	mu        sync.Mutex
+	initOnce  bool
 }
 
 // NewClient creates a new LLM client with the given configuration.
+// The eino model is not created until the first call to a method that needs it.
 func NewClient(cfg *config.Config) *Client {
 	return &Client{cfg: cfg}
 }
 
+// buildModel creates the underlying eino OpenAI-compatible chat model from config.
+func (c *Client) buildModel(ctx context.Context) (*openai.ChatModel, error) {
+	temp := float32(c.cfg.LLM.Temperature)
+	if temp == 0 {
+		temp = 1.0 // default for eino/openai
+	}
+	timeout := time.Duration(c.cfg.LLM.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+
+	baseURL := c.cfg.LLM.Endpoint
+
+	cm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+		BaseURL:     baseURL,
+		APIKey:      c.cfg.LLM.APIKey,
+		Model:       c.cfg.LLM.Model,
+		Temperature: &temp,
+		Timeout:     timeout,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return cm, nil
+}
+
+// getModel returns the cached eino model, creating it on first call.
+// Thread-safe. If creation fails, subsequent calls retry.
+func (c *Client) getModel(ctx context.Context) (*openai.ChatModel, error) {
+	c.mu.Lock()
+	if c.chatModel != nil {
+		c.mu.Unlock()
+		return c.chatModel, nil
+	}
+	if c.initOnce {
+		// Creation already failed before — retry
+		c.initOnce = false
+	}
+	cm, err := c.buildModel(ctx)
+	if err != nil {
+		c.mu.Unlock()
+		return nil, err
+	}
+	c.chatModel = cm
+	c.initOnce = true
+	c.mu.Unlock()
+	return cm, nil
+}
+
 // CheckConnectivity performs a basic connectivity check to the configured LLM endpoint.
-// Sends a minimal POST request (max_tokens=1) to verify both reachability and credentials.
-// Returns nil if the endpoint is reachable, or an error with a descriptive message.
+// Sends a minimal request (max_tokens=1) to verify both reachability and credentials.
 func (c *Client) CheckConnectivity(ctx context.Context) error {
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	payload := map[string]interface{}{
-		"model":      c.cfg.LLM.Model,
-		"max_tokens": 1,
-		"messages": []map[string]string{
-			{"role": "user", "content": "hi"},
-		},
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("cannot connect to LLM service: failed to prepare request: %v", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.APIURL(), bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("cannot connect to LLM service: invalid endpoint URL %q", c.APIURL())
-	}
-	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
+	cm, err := c.getModel(ctx)
 	if err != nil {
 		return fmt.Errorf("cannot connect to LLM service: %v", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("cannot connect to LLM service: authentication failed")
+	_, err = cm.Generate(ctx, []*schema.Message{
+		schema.UserMessage("hi"),
+	}, model.WithMaxTokens(1))
+	if err != nil {
+		return fmt.Errorf("cannot connect to LLM service: %v", err)
 	}
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("cannot connect to LLM service: server returned status %d", resp.StatusCode)
-	}
-
 	return nil
+}
+
+// Call sends a non-streaming chat completion request and returns the assistant's response content.
+func (c *Client) Call(ctx context.Context, messages []Message) (string, error) {
+	cm, err := c.getModel(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	msg, err := cm.Generate(ctx, c.toSchemaMessages(messages))
+	if err != nil {
+		log.Printf("[LLM] ERROR generating response: %v", err)
+		return "", fmt.Errorf("LLM service error: %v", err)
+	}
+
+	if msg == nil {
+		return "", fmt.Errorf("LLM returned empty response")
+	}
+
+	log.Printf("[LLM] Success! Response length: %d chars", len(msg.Content))
+	return msg.Content, nil
+}
+
+// StreamResponse sends a streaming chat completion request and writes SSE token events
+// to the provided writer. Each token chunk is emitted as a JSON event with "type": "token".
+// On completion, a "type": "done" event is written. On error, a "type": "error" event is written.
+func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt string, messages []Message) error {
+	cm, err := c.getModel(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Build message list: system prompt + conversation history
+	allMsgs := make([]*schema.Message, 0)
+	if systemPrompt != "" {
+		allMsgs = append(allMsgs, schema.SystemMessage(systemPrompt))
+	}
+	allMsgs = append(allMsgs, c.toSchemaMessages(messages)...)
+
+	stream, err := cm.Stream(ctx, allMsgs)
+	if err != nil {
+		log.Printf("[LLM-STREAM] ERROR starting stream: %v", err)
+		return fmt.Errorf("LLM service error: %v", err)
+	}
+	defer stream.Close()
+
+	var totalTokens, totalChars int
+
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			log.Printf("[LLM-STREAM] Stream complete: %d tokens, %d chars", totalTokens, totalChars)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"type": "done"})
+			return nil
+		}
+		if err != nil {
+			log.Printf("[LLM-STREAM] ERROR reading stream: %v", err)
+			return fmt.Errorf("stream read error: %v", err)
+		}
+
+		// Skip empty content chunks (e.g., those with only tool calls)
+		if chunk == nil || chunk.Content == "" {
+			continue
+		}
+
+		totalTokens++
+		totalChars += len(chunk.Content)
+
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"type":    "token",
+			"content": chunk.Content,
+		}); err != nil {
+			log.Printf("[LLM-STREAM] ERROR writing stream event after %d tokens: %v", totalTokens, err)
+			return fmt.Errorf("failed to write stream event: %v", err)
+		}
+	}
+}
+
+// toSchemaMessages converts the internal Message slice to eino schema.Message pointers.
+func (c *Client) toSchemaMessages(messages []Message) []*schema.Message {
+	msgs := make([]*schema.Message, 0, len(messages))
+	for _, m := range messages {
+		switch m.Role {
+		case "system":
+			msgs = append(msgs, schema.SystemMessage(m.Content))
+		case "assistant":
+			msgs = append(msgs, schema.AssistantMessage(m.Content, nil))
+		case "user":
+			msgs = append(msgs, schema.UserMessage(m.Content))
+		default:
+			msgs = append(msgs, schema.UserMessage(m.Content))
+		}
+	}
+	return msgs
+}
+
+// --- Helpers kept for backward compatibility ---
+
+// Message represents a chat message for the LLM API.
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 // Model returns the configured LLM model name.
@@ -80,17 +210,9 @@ func (c *Client) Endpoint() string {
 	return c.cfg.LLM.Endpoint
 }
 
-// APIPath returns the configured API path (default "/chat/completions").
-func (c *Client) APIPath() string {
-	if c.cfg.LLM.Path != "" {
-		return c.cfg.LLM.Path
-	}
-	return "/chat/completions"
-}
-
-// APIURL returns the full URL for chat completions (endpoint + path).
-func (c *Client) APIURL() string {
-	return c.cfg.LLM.Endpoint + c.APIPath()
+// PersonaPrompt returns the configured persona system prompt.
+func (c *Client) PersonaPrompt() string {
+	return c.cfg.GetPersonaPrompt()
 }
 
 // Timeout returns the configured HTTP timeout in seconds (default 60).
@@ -106,276 +228,17 @@ func (c *Client) APIKey() string {
 	return c.cfg.LLM.APIKey
 }
 
-// PersonaPrompt returns the configured persona system prompt.
-func (c *Client) PersonaPrompt() string {
-	return c.cfg.GetPersonaPrompt()
+// APIPath returns the configured API path (default "/chat/completions").
+func (c *Client) APIPath() string {
+	if c.cfg.LLM.Path != "" {
+		return c.cfg.LLM.Path
+	}
+	return "/chat/completions"
 }
 
-// StreamResponse sends a chat completion request with streaming enabled and writes
-// SSE events to the provided writer. Each token chunk is emitted as a JSON event.
-// The caller is responsible for flushing the writer after each event.
-func (c *Client) StreamResponse(ctx context.Context, w io.Writer, systemPrompt string, messages []Message) error {
-	msgPayload := make([]map[string]string, 0, len(messages)+1)
-	msgPayload = append(msgPayload, map[string]string{"role": "system", "content": systemPrompt})
-	for _, m := range messages {
-		msgPayload = append(msgPayload, map[string]string{"role": m.Role, "content": m.Content})
-	}
-
-	payload := map[string]interface{}{
-		"model":       c.cfg.LLM.Model,
-		"stream":      true,
-		"temperature": c.cfg.LLM.Temperature,
-		"max_tokens":  4096,
-		"messages":    msgPayload,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("[LLM-STREAM] ERROR marshalling request payload: %v", err)
-		return fmt.Errorf("failed to prepare LLM request: %v", err)
-	}
-
-	apiURL := c.APIURL()
-	log.Printf("[LLM-STREAM] === Request: POST %s (model=%s, stream=true, msgs=%d, body=%d bytes) ===",
-		apiURL, c.cfg.LLM.Model, len(messages), len(body))
-
-	timeout := time.Duration(c.cfg.LLM.Timeout) * time.Second
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
-	if err != nil {
-		log.Printf("[LLM-STREAM] ERROR creating HTTP request: %v", err)
-		return fmt.Errorf("cannot connect to LLM service: %v", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	httpClient := &http.Client{Timeout: timeout}
-	start := time.Now()
-
-	log.Printf("[LLM-STREAM] Sending HTTP request to LLM (timeout=%ds)...", c.cfg.LLM.Timeout)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		elapsed := time.Since(start)
-		log.Printf("[LLM-STREAM] ERROR HTTP request failed after %v: %v", elapsed, err)
-		return fmt.Errorf("cannot connect to LLM service: %v", err)
-	}
-	defer resp.Body.Close()
-
-	elapsed := time.Since(start)
-	log.Printf("[LLM-STREAM] HTTP response received in %v: status=%d", elapsed, resp.StatusCode)
-
-	if resp.StatusCode >= 400 {
-		// Read and log the error response body for debugging
-		var errBody bytes.Buffer
-		_, readErr := errBody.ReadFrom(resp.Body)
-		if readErr != nil {
-			log.Printf("[LLM-STREAM] ERROR LLM returned status %d (could not read body: %v)", resp.StatusCode, readErr)
-		} else {
-			bodyStr := errBody.String()
-			log.Printf("[LLM-STREAM] ERROR LLM returned status %d, body: %s", resp.StatusCode, bodyStr)
-		}
-		return fmt.Errorf("LLM service error: status %d", resp.StatusCode)
-	}
-
-	// Parse Server-Sent Events stream
-	scanner := bufio.NewScanner(resp.Body)
-	// Increase buffer size for large tokens
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-
-	var totalTokens int
-	var totalChars int
-	streamStart := time.Now()
-
-	log.Printf("[LLM-STREAM] Beginning token stream...")
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			streamElapsed := time.Since(streamStart)
-			log.Printf("[LLM-STREAM] Stream complete: %d tokens, %d chars in %v", totalTokens, totalChars, streamElapsed)
-
-			// Emit done event
-			event := map[string]interface{}{
-				"type": "done",
-			}
-			json.NewEncoder(w).Encode(event)
-			return nil
-		}
-
-		var chunk map[string]interface{}
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			log.Printf("[LLM-STREAM] WARN failed to parse SSE chunk: %v (data: %.200q)", err, data)
-			continue
-		}
-
-		choices, ok := chunk["choices"].([]interface{})
-		if !ok || len(choices) == 0 {
-			continue
-		}
-
-		firstChoice, ok := choices[0].(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		// Log finish_reason if present (indicates how the model stopped)
-		if finishReason, ok := firstChoice["finish_reason"].(string); ok && finishReason != "" {
-			log.Printf("[LLM-STREAM] Model finish_reason: %s", finishReason)
-		}
-
-		delta, ok := firstChoice["delta"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		content, ok := delta["content"].(string)
-		if !ok || content == "" {
-			continue
-		}
-
-		totalTokens++
-		totalChars += len(content)
-
-		// Emit token event
-		event := map[string]interface{}{
-			"type":    "token",
-			"content": content,
-		}
-		if err := json.NewEncoder(w).Encode(event); err != nil {
-			log.Printf("[LLM-STREAM] ERROR failed to write stream event after %d tokens: %v", totalTokens, err)
-			return fmt.Errorf("failed to write stream event: %v", err)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		streamElapsed := time.Since(streamStart)
-		log.Printf("[LLM-STREAM] ERROR stream read error after %v (%d tokens, %d chars): %v",
-			streamElapsed, totalTokens, totalChars, err)
-		return fmt.Errorf("stream read error: %v", err)
-	}
-
-	// Emit done if we reach here without [DONE]
-	streamElapsed := time.Since(streamStart)
-	log.Printf("[LLM-STREAM] Stream ended without [DONE]: %d tokens, %d chars in %v", totalTokens, totalChars, streamElapsed)
-
-	event := map[string]interface{}{
-		"type": "done",
-	}
-	json.NewEncoder(w).Encode(event)
-	return nil
-}
-
-// Message represents a chat message for the LLM API.
-type Message struct {
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp,omitempty"`
-}
-
-// Call sends a chat completion request to the LLM and returns the assistant's
-// response content. It handles payload construction, HTTP transport, and response
-// parsing in one call.
-func (c *Client) Call(ctx context.Context, messages []Message) (string, error) {
-	payload := map[string]interface{}{
-		"model":    c.cfg.LLM.Model,
-		"messages": c.buildMessagePayload(messages),
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("[LLM] ERROR marshalling payload: %v", err)
-		return "", fmt.Errorf("failed to prepare LLM request: %v", err)
-	}
-
-	apiURL := c.APIURL()
-	log.Printf("[LLM] Sending POST to %s (body size: %d bytes)", apiURL, len(body))
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
-	if err != nil {
-		log.Printf("[LLM] ERROR creating HTTP request: %v", err)
-		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	httpClient := &http.Client{Timeout: time.Duration(c.cfg.LLM.Timeout) * time.Second}
-	start := time.Now()
-
-	log.Printf("[LLM] Sending HTTP request to LLM...")
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		elapsed := time.Since(start)
-		log.Printf("[LLM] ERROR HTTP request failed after %v: %v", elapsed, err)
-		return "", fmt.Errorf("cannot connect to LLM service: %v", err)
-	}
-	defer resp.Body.Close()
-
-	elapsed := time.Since(start)
-	log.Printf("[LLM] HTTP response received in %v: status=%d", elapsed, resp.StatusCode)
-
-	// Read response body for logging
-	var respBody bytes.Buffer
-	_, err = respBody.ReadFrom(resp.Body)
-	if err != nil {
-		log.Printf("[LLM] ERROR reading response body: %v", err)
-		return "", fmt.Errorf("failed to read LLM response: %v", err)
-	}
-	respBodyStr := respBody.String()
-	log.Printf("[LLM] Response body (truncated): %.1000q", respBodyStr)
-
-	if resp.StatusCode >= 400 {
-		log.Printf("[LLM] ERROR LLM returned status %d: %s", resp.StatusCode, respBodyStr)
-		return "", fmt.Errorf("LLM service error: status %d", resp.StatusCode)
-	}
-
-	return c.parseResponse(&respBody)
-}
-
-// buildMessagePayload converts a slice of Message into the JSON payload format.
-func (c *Client) buildMessagePayload(messages []Message) []map[string]string {
-	payload := make([]map[string]string, 0, len(messages))
-	for _, m := range messages {
-		payload = append(payload, map[string]string{"role": m.Role, "content": m.Content})
-	}
-	return payload
-}
-
-// parseResponse extracts the assistant's content from an LLM API JSON response.
-func (c *Client) parseResponse(respBody *bytes.Buffer) (string, error) {
-	var result map[string]interface{}
-	if err := json.NewDecoder(respBody).Decode(&result); err != nil {
-		log.Printf("[LLM] ERROR parsing JSON response: %v", err)
-		return "", fmt.Errorf("failed to parse LLM response: %v", err)
-	}
-
-	choices, ok := result["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		log.Printf("[LLM] ERROR no choices in response: %#v", result)
-		return "", fmt.Errorf("LLM returned no response")
-	}
-
-	firstChoice, ok := choices[0].(map[string]interface{})
-	if !ok {
-		log.Printf("[LLM] ERROR invalid choices[0] type: %#v", choices[0])
-		return "", fmt.Errorf("invalid LLM response format")
-	}
-
-	message, ok := firstChoice["message"].(map[string]interface{})
-	if !ok {
-		log.Printf("[LLM] ERROR no message in first choice: %#v", firstChoice)
-		return "", fmt.Errorf("invalid LLM response format")
-	}
-
-	content, ok := message["content"].(string)
-	if !ok {
-		log.Printf("[LLM] ERROR no content in message: %#v", message)
-		return "", fmt.Errorf("LLM returned empty content")
-	}
-
-	log.Printf("[LLM] Success! Response length: %d chars", len(content))
-	return content, nil
+// APIURL returns the full URL for chat completions (endpoint + path).
+// Note: eino internally handles path appending, but this method is kept
+// for reference/logging purposes.
+func (c *Client) APIURL() string {
+	return c.cfg.LLM.Endpoint + c.APIPath()
 }
