@@ -48,7 +48,7 @@ func TestTopicIsolation(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		// Create Topic A with specific conversation
 		topicAID := "topic-isolation-a"
@@ -101,7 +101,7 @@ func TestTopicIsolation(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		// Create Topic B with sensitive data
 		topicBID := "topic-isolation-b2"
@@ -154,7 +154,7 @@ func TestTopicIsolation(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-isolation-single"
 		store.Create(topicID, "Single Topic", "A medical records system")
@@ -196,7 +196,7 @@ func TestTopicIsolation(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		// Create Topic A and B
 		topicAID := "topic-switch-a"
@@ -261,7 +261,7 @@ func TestTopicIsolation(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicAID := "topic-rapid-a"
 		topicBID := "topic-rapid-b"

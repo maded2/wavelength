@@ -30,7 +30,7 @@ func TestDocumentIsolation(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicA := "topic-doc-iso-a"
 		topicB := "topic-doc-iso-b"
@@ -85,7 +85,7 @@ func TestDocumentIsolation(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicA := "topic-doc-iso-a2"
 		topicB := "topic-doc-iso-b2"
@@ -124,7 +124,7 @@ func TestDocumentIsolation(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicA := "topic-doc-iso-a3"
 		topicB := "topic-doc-iso-b3"
@@ -149,9 +149,8 @@ func TestDocumentIsolation(t *testing.T) {
 	})
 
 	t.Run("viewing Topic As document never shows content from Topic Bs document", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
 		})
 		app := suite.App
@@ -197,7 +196,7 @@ w.WriteHeader(http.StatusOK)
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicA := "topic-doc-iso-a5"
 		topicB := "topic-doc-iso-b5"

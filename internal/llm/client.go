@@ -119,6 +119,97 @@ func (c *Client) Call(ctx context.Context, messages []Message) (string, error) {
 	return msg.Content, nil
 }
 
+// CallWithTools sends a chat completion request with function tools.
+// It handles the tool calling loop: if the LLM requests tool calls, it executes them,
+// sends results back, and continues until the LLM produces a final text response.
+// Returns the assistant's conversational response.
+func (c *Client) CallWithTools(ctx context.Context, messages []Message, tools []*Tool) (string, error) {
+	cm, err := c.getModel(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// Build initial message list
+	allMsgs := c.toSchemaMessages(messages)
+
+	// Build tool lookup map
+	toolMap := make(map[string]*Tool)
+	for _, t := range tools {
+		toolMap[t.Info.Name] = t
+	}
+
+	toolNames := make([]string, len(tools))
+	for i, t := range tools {
+		toolNames[i] = t.Info.Name
+	}
+	log.Printf("[LLM-TOOLS] Starting tool-enabled call with tools: %v", toolNames)
+
+	const maxToolRounds = 10 // Prevent infinite loops
+	var totalToolCalls int
+
+	for round := 0; round < maxToolRounds; round++ {
+		// Call the LLM with tools
+		callStart := time.Now()
+		msg, err := cm.Generate(ctx, allMsgs, model.WithTools(ToSchemaTools(tools)))
+		if err != nil {
+			log.Printf("[LLM-TOOLS] ERROR generating response: %v", err)
+			return "", fmt.Errorf("LLM service error: %v", err)
+		}
+
+		if msg == nil {
+			return "", fmt.Errorf("LLM returned empty response")
+		}
+
+		// Check if the LLM wants to call tools
+		toolCalls := ExtractToolCalls(msg)
+		if len(toolCalls) == 0 {
+			// No tool calls — this is the final response
+			finishReason := ""
+			if msg.ResponseMeta != nil {
+				finishReason = msg.ResponseMeta.FinishReason
+			}
+			log.Printf("[LLM-TOOLS] Final response after %d round(s), %d total tool call(s), %d chars response, finish_reason=%q, %v LLM latency", round, totalToolCalls, len(msg.Content), finishReason, time.Since(callStart).Round(time.Millisecond))
+			return msg.Content, nil
+		}
+
+		finishReason := ""
+		if msg.ResponseMeta != nil {
+			finishReason = msg.ResponseMeta.FinishReason
+		}
+		log.Printf("[LLM-TOOLS] Round %d: LLM requested %d tool call(s), finish_reason=%q, %v LLM latency", round, len(toolCalls), finishReason, time.Since(callStart).Round(time.Millisecond))
+
+		// Append the assistant's message (with tool calls) to the conversation
+		allMsgs = append(allMsgs, msg)
+
+		// Execute each tool call
+		for _, tc := range toolCalls {
+			totalToolCalls++
+			tool, ok := toolMap[tc.Name]
+			if !ok {
+				log.Printf("[LLM-TOOLS]  -> Unknown tool requested: %q (call id: %s)", tc.Name, tc.ID)
+				allMsgs = append(allMsgs, schema.ToolMessage("error: unknown tool "+tc.Name, tc.ID))
+				continue
+			}
+
+			execStart := time.Now()
+			log.Printf("[LLM-TOOLS]  -> Executing tool %q (call id: %s, args: %.300q)", tc.Name, tc.ID, tc.ArgsJSON)
+			result, err := tool.Execute(ctx, tc.ArgsJSON)
+			elapsed := time.Since(execStart)
+
+			if err != nil {
+				log.Printf("[LLM-TOOLS]  -> Tool %q FAILED (%v): %v", tc.Name, elapsed.Round(time.Millisecond), err)
+				result = fmt.Sprintf("error executing %s: %v", tc.Name, err)
+			} else {
+				log.Printf("[LLM-TOOLS]  -> Tool %q OK (%v, result: %d bytes)", tc.Name, elapsed.Round(time.Millisecond), len(result))
+			}
+			allMsgs = append(allMsgs, schema.ToolMessage(result, tc.ID))
+		}
+	}
+
+	log.Printf("[LLM-TOOLS] WARNING: exceeded maximum rounds (%d) with %d total tool calls — aborting", maxToolRounds, totalToolCalls)
+	return "", fmt.Errorf("tool calling exceeded maximum rounds (%d)", maxToolRounds)
+}
+
 // StreamResponse sends a streaming chat completion request and writes SSE token events
 // to the provided writer. Each token chunk is emitted as a JSON event with "type": "token".
 // On completion, a "type": "done" event is written. On error, a "type": "error" event is written.

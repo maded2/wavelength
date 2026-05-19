@@ -5,11 +5,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E4-S8: Document viewer flashes to indicate when the document changed
@@ -18,7 +13,6 @@ func TestDocumentFlashIndicator(t *testing.T) {
 	t.Run("topic page includes the document flash indicator element", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		store := suite.Store
 
 		// Serve the topic page
 		req := httptest.NewRequest("GET", "/topics/test", nil)
@@ -43,7 +37,6 @@ func TestDocumentFlashIndicator(t *testing.T) {
 	t.Run("topic page includes the flash animation CSS", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/topics/test", nil)
 		resp, err := app.Test(req)
@@ -70,7 +63,6 @@ func TestDocumentFlashIndicator(t *testing.T) {
 	t.Run("topic page includes the flashDocumentPanel JavaScript function", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/topics/test", nil)
 		resp, err := app.Test(req)
@@ -94,7 +86,6 @@ func TestDocumentFlashIndicator(t *testing.T) {
 	t.Run("doc-panel has an id for JavaScript targeting", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/topics/test", nil)
 		resp, err := app.Test(req)

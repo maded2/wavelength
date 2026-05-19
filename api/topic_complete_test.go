@@ -30,7 +30,7 @@ func TestMarkTopicComplete(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-complete-001"
 		store.Create(topicID, "Complete Me", "A topic to complete")
@@ -74,7 +74,7 @@ func TestMarkTopicComplete(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		// Create two topics
 		activeID := "topic-active-001"
@@ -141,7 +141,7 @@ func TestMarkTopicComplete(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-complete-002"
 		topic := store.Create(topicID, "Doc Topic", "Has a document")
@@ -191,7 +191,7 @@ func TestMarkTopicComplete(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-complete-003"
 		store.Create(topicID, "Completed Topic", "Cannot add messages")
@@ -234,7 +234,7 @@ func TestMarkTopicComplete(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-complete-004"
 		store.Create(topicID, "Empty Topic", "No interview started")

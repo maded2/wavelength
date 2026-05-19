@@ -7,11 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 func TestDownloadDocument(t *testing.T) {
@@ -137,7 +132,6 @@ func TestDownloadDocument(t *testing.T) {
 	t.Run("download returns 404 for non-existent topic", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/api/topics/nonexistent/document/download", nil)
 		resp, err := app.Test(req)
@@ -206,11 +200,4 @@ func TestDownloadDocument(t *testing.T) {
 			t.Errorf("expected attachment disposition, got: %s", disposition)
 		}
 	})
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

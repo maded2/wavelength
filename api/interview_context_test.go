@@ -8,20 +8,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E3-S10: User provides additional context beyond the initial high-level requirement
 
 func TestAdditionalContext(t *testing.T) {
 	t.Run("user can provide additional context at any point during the interview", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Understood, GDPR compliance noted."}}]}`))
 		})
 		app := suite.App
@@ -64,9 +58,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the additional context is reflected in the conversation history", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Noted."}}]}`))
 		})
 		app := suite.App
@@ -117,9 +110,9 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the AI agent receives the additional context in the conversation prompt", func(t *testing.T) {
-		app := fiber.New()
+		var receivedPrompt string
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-buf := new(bytes.Buffer)
+			buf := new(bytes.Buffer)
 			io.Copy(buf, r.Body)
 			receivedPrompt = buf.String()
 			w.WriteHeader(http.StatusOK)
@@ -157,9 +150,8 @@ buf := new(bytes.Buffer)
 	})
 
 	t.Run("no special command or format is required to provide context", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Understood."}}]}`))
 		})
 		app := suite.App

@@ -104,8 +104,19 @@ Guidelines:
 - Do NOT provide implementation details, architectural advice, or technical solutions
 - Keep the conversation natural and adaptive to the domain being discussed
 
-Document Updates:
-Whenever you update or create the living requirements document, include the complete document content wrapped in the following delimiters (on their own lines):
+File Access:
+You have access to two tools for managing files in the topic's directory:
+
+1. **read_file**: Read the current requirement document ('document.md') or any uploaded reference document by filename. Use this to review existing content before making updates.
+2. **write_document**: Save the complete living requirements document. Use this tool to persist the document after creating or updating it. Always provide the FULL document content, not just incremental changes.
+
+Workflow:
+- Before updating the document, use read_file to review the current 'document.md'
+- After finalizing your changes, use write_document to save the complete updated document
+- You can make multiple tool calls in a single turn (read then write)
+
+Document Updates (fallback):
+If the write_document tool is unavailable, you can also include the complete document content wrapped in the following delimiters:
 
 === REQUIREMENT DOCUMENT ===
 <complete markdown document content here>
@@ -113,7 +124,7 @@ Whenever you update or create the living requirements document, include the comp
 
 The content between these delimiters will be extracted and saved as the topic's requirement document. Everything outside the delimiters is your conversational response to the stakeholder.
 
-IMPORTANT: Do NOT use "---" (three dashes) as a document delimiter. The "---" sequence is a standard markdown horizontal rule that may appear naturally in your response. Only use the exact markers "=== REQUIREMENT DOCUMENT ===" and "=== END REQUIREMENT DOCUMENT ===" to wrap document content.`
+IMPORTANT: Do NOT use "---" (three dashes) as a document delimiter. The "---" sequence is a standard markdown horizontal rule that may appear naturally in your response.`
 
 // GetPersonaPrompt returns the configured persona prompt, or the default if none is set.
 func (c *Config) GetPersonaPrompt() string {

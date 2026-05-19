@@ -5,11 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E2-S3: User views topic details and session information
@@ -148,7 +143,6 @@ func TestTopicDetail(t *testing.T) {
 	t.Run("non-existent topic returns 404", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/api/topics/non-existent-topic", nil)
 		resp, err := app.Test(req)

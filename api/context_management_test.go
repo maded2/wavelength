@@ -7,20 +7,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E3-S8: System manages long conversations approaching LLM context limits
 
 func TestContextManagement(t *testing.T) {
 	t.Run("long conversations do not produce technical context limit errors", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusRequestEntityTooLarge)
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
 			w.Write([]byte(`{"error":"context length exceeded"}`))
 		})
 		app := suite.App
@@ -60,9 +54,8 @@ w.WriteHeader(http.StatusRequestEntityTooLarge)
 	})
 
 	t.Run("the user sees a user-friendly message when context management occurs", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusRequestEntityTooLarge)
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
 			w.Write([]byte(`{"error":"context length exceeded"}`))
 		})
 		app := suite.App
@@ -104,9 +97,8 @@ w.WriteHeader(http.StatusRequestEntityTooLarge)
 	})
 
 	t.Run("the users message is preserved even when context limits are reached", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusRequestEntityTooLarge)
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
 			w.Write([]byte(`{"error":"context length exceeded"}`))
 		})
 		app := suite.App
@@ -152,9 +144,9 @@ w.WriteHeader(http.StatusRequestEntityTooLarge)
 	})
 
 	t.Run("the conversation state remains intact for resumption after context issues", func(t *testing.T) {
-		app := fiber.New()
+		callCount := 0
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-callCount++
+			callCount++
 			if callCount == 1 {
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(`{"choices":[{"message":{"content":"Got it."}}]}`))

@@ -5,11 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E2-S5: User deletes a topic
@@ -134,7 +129,6 @@ func TestDeleteTopic(t *testing.T) {
 	t.Run("deleting a non-existent topic returns 404", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		store := suite.Store
 
 		req := httptest.NewRequest("DELETE", "/api/topics/non-existent", nil)
 		resp, err := app.Test(req)

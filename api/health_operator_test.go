@@ -21,6 +21,8 @@ func TestOperatorHealthStatus(t *testing.T) {
 
 		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
 		}))
 		defer llmServer.Close()
 
@@ -69,6 +71,8 @@ func TestOperatorHealthStatus(t *testing.T) {
 
 		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
 		}))
 		defer llmServer.Close()
 
@@ -181,6 +185,8 @@ func TestOperatorHealthStatus(t *testing.T) {
 
 		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
 		}))
 		defer llmServer.Close()
 
@@ -228,6 +234,8 @@ func TestOperatorHealthStatus(t *testing.T) {
 		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if available {
 				w.WriteHeader(http.StatusOK)
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
 			} else {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}

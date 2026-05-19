@@ -5,21 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E3-S2: User engages in conversational back-and-forth with the AI agent
 
 func TestConversationalBackAndForth(t *testing.T) {
 	t.Run("user can type a free-form text response and submit it to the AI agent", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -62,9 +57,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("after the user submits a response the AI agent generates a follow-up", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -113,9 +107,9 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the conversation is displayed as a chronological exchange of messages", func(t *testing.T) {
-		app := fiber.New()
+		responseCount := 0
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-responseCount++
+			responseCount++
 			w.WriteHeader(http.StatusOK)
 			if responseCount == 1 {
 				w.Write([]byte(`{"choices":[{"message":{"content":"Got it. What about user roles?"}}]}`))
@@ -178,9 +172,8 @@ responseCount++
 	})
 
 	t.Run("the users message appears in the conversation immediately upon submission", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Processing your response..."}}]}`))
 		})
 		app := suite.App
@@ -221,9 +214,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the response includes an indication that the agent is processing", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Here is the follow-up question."}}]}`))
 		})
 		app := suite.App
@@ -266,9 +258,9 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the agents response is relevant to the users last message", func(t *testing.T) {
-		app := fiber.New()
+		var receivedBody string
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-buf := new(bytes.Buffer)
+			buf := new(bytes.Buffer)
 			buf.ReadFrom(r.Body)
 			receivedBody = buf.String()
 
@@ -293,21 +285,8 @@ buf := new(bytes.Buffer)
 		resp.Body.Close()
 
 		// Verify the user's message was sent to the LLM
-		if !contains(receivedBody, "encryption") {
+		if !strings.Contains(receivedBody, "encryption") {
 			t.Errorf("expected LLM prompt to contain user's message about encryption, got: %s", receivedBody)
 		}
 	})
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

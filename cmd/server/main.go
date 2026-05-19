@@ -58,7 +58,7 @@ func main() {
 	})
 
 	// Register all routes
-	api.SetupRoutes(app, store, client)
+	api.SetupRoutes(app, store, client, cfg.DataDir)
 
 	// Persist topics on shutdown
 	go func() {

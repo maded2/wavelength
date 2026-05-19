@@ -30,7 +30,7 @@ func TestReopenTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-reopen-001"
 		store.Create(topicID, "Reopen Me", "A topic to reopen")
@@ -86,7 +86,7 @@ func TestReopenTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-reopen-002"
 		store.Create(topicID, "Status Check", "Testing status transition")
@@ -139,7 +139,7 @@ func TestReopenTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-reopen-003"
 		topic := store.Create(topicID, "Preserve Data", "Testing data preservation")
@@ -206,7 +206,7 @@ func TestReopenTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-reopen-004"
 		store.Create(topicID, "Same Topic", "No new topic created")
@@ -264,7 +264,7 @@ func TestReopenTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-reopen-005"
 		store.Create(topicID, "Message After Reopen", "Testing messages after reopen")

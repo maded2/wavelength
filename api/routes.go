@@ -22,7 +22,7 @@ import (
 )
 
 // SetupRoutes registers all API routes on the given Fiber app.
-func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) {
+func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, dataDir string) {
 	// Static landing page
 	app.Get("/", LandingPage)
 
@@ -379,13 +379,27 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 		// (FileStore.Get returns a copy, so the old reference is stale)
 		topic = store.Get(topicID)
 
-		// Build prompt and call LLM via client
+		// Build prompt and call LLM with tool support
 		prompt := buildConversationContext(topic, req.Content)
 		llmMessages := []llm.Message{
 			{Role: "system", Content: client.PersonaPrompt()},
 			{Role: "user", Content: prompt},
 		}
-		assistantResponse, err := client.Call(c.Context(), llmMessages)
+
+		// Build tools for the LLM
+		topicDir := filepath.Join(dataDir, "topics", topicID)
+		var toolDocUpdated bool
+		tools := []*llm.Tool{
+			llm.FileReadTool(topicDir),
+			llm.WriteDocumentTool(topicDir, func(content string) {
+				// Update the in-memory store when the LLM writes the document
+				store.SetDocument(topicID, content)
+				toolDocUpdated = true
+				log.Printf("[DOC-TOOL] Tool wrote document for topic %q (%d bytes)", topicID, len(content))
+			}),
+		}
+
+		assistantResponse, err := client.CallWithTools(c.Context(), llmMessages, tools)
 		if err != nil {
 			// LLM failed — return user-friendly error but user message is preserved
 			return c.Status(http.StatusOK).JSON(fiber.Map{
@@ -399,12 +413,12 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 			})
 		}
 
-		// Extract any embedded requirements document from the LLM response
+		// Extract any embedded requirements document from the LLM response (fallback)
 		conversationalPart, extractedDoc := extractDocument(assistantResponse)
 
-		// If a document was extracted, update the topic's requirement document
-		documentUpdated := false
-		if extractedDoc != "" {
+		// Document was updated either by the write_document tool or via delimiters
+		documentUpdated := toolDocUpdated
+		if !documentUpdated && extractedDoc != "" {
 			if store.SetDocument(topicID, extractedDoc) {
 				documentUpdated = true
 				log.Printf("[DOC] Updated requirement document for topic %q (%d bytes)", topicID, len(extractedDoc))
@@ -510,7 +524,10 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 		var captureBuffer strings.Builder
 		tee := io.MultiWriter(pw, &captureBuffer)
 
-		// Start streaming to client in a goroutine
+		// Start streaming to client in a goroutine.
+		// The "done" event is only sent AFTER all post-stream processing completes
+		// (document extraction, follow-up tool calls, message persistence).
+		// This ensures the frontend reloads the topic with up-to-date document state.
 		go func() {
 			defer pw.Close()
 
@@ -529,15 +546,16 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 					"message": "The AI agent is temporarily unavailable. Your message has been saved.",
 				}
 				json.NewEncoder(tee).Encode(errEvent)
+				// Send done even on error so frontend unblocks
+				doneEvent := map[string]interface{}{
+					"type":             "done",
+					"document_updated": false,
+				}
+				json.NewEncoder(tee).Encode(doneEvent)
+				return
 			}
 
-			// Send done event
-			doneEvent := map[string]interface{}{
-				"type": "done",
-			}
-			json.NewEncoder(tee).Encode(doneEvent)
-
-			// Now process captured tokens for document extraction
+			// Process captured tokens for document extraction
 			responseText := captureBuffer.String()
 			var tokens []string
 			scanner := bufio.NewScanner(strings.NewReader(responseText))
@@ -565,26 +583,72 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client) 
 			assistantResponse := strings.Join(tokens, "")
 			if assistantResponse == "" {
 				log.Printf("[LLM-STREAM] WARN no assistant tokens captured for topic %q (buffer: %d bytes)", topicID, len(responseText))
+				doneEvent := map[string]interface{}{
+					"type":             "done",
+					"document_updated": false,
+				}
+				json.NewEncoder(tee).Encode(doneEvent)
 				return
 			}
 
 			log.Printf("[LLM-STREAM] Captured %d tokens (%d chars) for topic %q", len(tokens), len(assistantResponse), topicID)
 
-			// Extract any embedded requirements document
+			// Extract any embedded requirements document (delimiter-based fallback)
 			conversationalPart, extractedDoc := extractDocument(assistantResponse)
 
-			// Update document if extracted
+			documentUpdated := false
+
+			// Update document if extracted via delimiters
 			if extractedDoc != "" {
 				if store.SetDocument(topicID, extractedDoc) {
-					log.Printf("[DOC] Updated requirement document for topic %q (%d bytes)", topicID, len(extractedDoc))
+					documentUpdated = true
+					log.Printf("[DOC] Updated requirement document for topic %q via delimiters (%d bytes)", topicID, len(extractedDoc))
 				} else {
 					log.Printf("[LLM-STREAM] WARN failed to save extracted document for topic %q", topicID)
+				}
+			}
+
+			// If no document was extracted via delimiters, do a follow-up tool call
+			// so the LLM can use write_document to persist the document.
+			if !documentUpdated {
+				topicDir := filepath.Join(dataDir, "topics", topicID)
+				followUpTools := []*llm.Tool{
+					llm.FileReadTool(topicDir),
+					llm.WriteDocumentTool(topicDir, func(content string) {
+						store.SetDocument(topicID, content)
+						documentUpdated = true
+						log.Printf("[DOC-TOOL] Follow-up tool wrote document for topic %q (%d bytes)", topicID, len(content))
+					}),
+				}
+				followUpMsg := fmt.Sprintf(
+					"You just produced the following response in a requirements gathering session. "+
+						"If this response contains or implies an updated requirements document, use the write_document tool to save it. "+
+						"If the conversation does not warrant updating the document, simply reply 'no document update needed'.\n\n%s",
+					assistantResponse,
+				)
+				followUpMessages := []llm.Message{
+					{Role: "system", Content: client.PersonaPrompt()},
+					{Role: "user", Content: followUpMsg},
+				}
+				followUpCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				_, err := client.CallWithTools(followUpCtx, followUpMessages, followUpTools)
+				cancel()
+				if err != nil {
+					log.Printf("[LLM-STREAM] Follow-up tool call failed for topic %q: %v", topicID, err)
 				}
 			}
 
 			// Save assistant response
 			store.AddMessage(topicID, "assistant", conversationalPart)
 			log.Printf("[LLM-STREAM] Saved assistant message for topic %q (%d chars conversational)", topicID, len(conversationalPart))
+
+			// Send done event — only after all persistence is complete
+			doneEvent := map[string]interface{}{
+				"type":             "done",
+				"document_updated": documentUpdated,
+			}
+			json.NewEncoder(tee).Encode(doneEvent)
+			log.Printf("[LLM-STREAM] Stream complete for topic %q (document_updated=%v)", topicID, documentUpdated)
 		}()
 
 		// Stream the pipe to the HTTP response

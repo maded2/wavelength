@@ -9,20 +9,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E1-S6: System handles LLM unavailability gracefully during an interview
 
 func TestLLMFailureDuringInterview(t *testing.T) {
 	t.Run("user sees a clear non-technical message when the AI agent cannot respond", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte(`{"error":"service unavailable"}`))
 		})
 		app := suite.App
@@ -64,9 +59,8 @@ w.WriteHeader(http.StatusServiceUnavailable)
 	})
 
 	t.Run("the users message is preserved even when the LLM fails", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusServiceUnavailable)
 		})
 		app := suite.App
 		store := suite.Store
@@ -108,9 +102,9 @@ w.WriteHeader(http.StatusServiceUnavailable)
 	})
 
 	t.Run("the entire conversation history up to that point remains intact after LLM failure", func(t *testing.T) {
-		app := fiber.New()
+		callCount := 0
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-callCount++
+			callCount++
 			if callCount <= 2 {
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(`{"choices":[{"message":{"content":"Got it, let me ask about that."}}]}`))
@@ -164,9 +158,8 @@ callCount++
 	})
 
 	t.Run("an LLM failure in one topic does not affect the state of other topics", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusServiceUnavailable)
 		})
 		app := suite.App
 		store := suite.Store

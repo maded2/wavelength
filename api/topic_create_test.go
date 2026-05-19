@@ -32,7 +32,7 @@ func TestCreateTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		payload := map[string]string{
 			"name":        "E-Commerce Platform",
@@ -82,7 +82,7 @@ func TestCreateTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		payload := map[string]string{
 			"name":        "",
@@ -126,7 +126,7 @@ func TestCreateTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		payload := map[string]string{
 			"name":        "My Topic",
@@ -173,7 +173,7 @@ func TestCreateTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		// Create a topic
 		payload := map[string]string{
@@ -226,7 +226,7 @@ func TestCreateTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		// Create two topics
 		topicA := map[string]string{
@@ -304,7 +304,7 @@ func TestCreateTopic(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		// Create first topic
 		payload1 := map[string]string{

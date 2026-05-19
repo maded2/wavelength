@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
 	"wavelength/internal/topic"
@@ -23,12 +24,12 @@ func TestBuildConversationContext(t *testing.T) {
 		prompt := buildConversationContext(topic, "I also need password reset")
 
 		// All messages should appear in the prompt
-		if !ctxContainsAll(prompt, "Hello", "Hi there", "I need a login system") {
+		if !strings.Contains(prompt, "Hello") || !strings.Contains(prompt, "Hi there") || !strings.Contains(prompt, "I need a login system") {
 			t.Errorf("expected all messages in prompt, got:\n%s", prompt)
 		}
 
 		// Should NOT have summary markers since it's short
-		if ctxContains(prompt, "Conversation summary") {
+		if strings.Contains(prompt, "Conversation summary") {
 			t.Errorf("expected no summary in short conversation, got:\n%s", prompt)
 		}
 	})
@@ -61,27 +62,27 @@ func TestBuildConversationContext(t *testing.T) {
 		prompt := buildConversationContext(topic, "Final message in the conversation")
 
 		// Should have summary markers
-		if !ctxContains(prompt, "Conversation summary") {
+		if !strings.Contains(prompt, "Conversation summary") {
 			t.Errorf("expected summary markers in long conversation, got:\n%s", prompt)
 		}
 
 		// Should have recent conversation section
-		if !ctxContains(prompt, "Recent conversation") {
+		if !strings.Contains(prompt, "Recent conversation") {
 			t.Errorf("expected recent conversation section, got:\n%s", prompt)
 		}
 
 		// Should include topic name and description
-		if !ctxContains(prompt, "Long Conversation") || !ctxContains(prompt, "A topic with a very long conversation") {
+		if !strings.Contains(prompt, "Long Conversation") || !strings.Contains(prompt, "A topic with a very long conversation") {
 			t.Errorf("expected topic name and description, got:\n%s", prompt)
 		}
 
 		// Should include current document
-		if !ctxContains(prompt, "Current requirement document") {
+		if !strings.Contains(prompt, "Current requirement document") {
 			t.Errorf("expected current requirement document, got:\n%s", prompt)
 		}
 
 		// Should include user's latest message
-		if !ctxContains(prompt, "Final message in the conversation") {
+		if !strings.Contains(prompt, "Final message in the conversation") {
 			t.Errorf("expected user's latest message, got:\n%s", prompt)
 		}
 	})
@@ -106,7 +107,7 @@ func TestBuildConversationContext(t *testing.T) {
 		prompt := buildConversationContext(topic, "Test message")
 
 		// Document should be truncated
-		if !ctxContains(prompt, "...(truncated for context)") {
+		if !strings.Contains(prompt, "...(truncated for context)") {
 			t.Errorf("expected truncated document marker, got:\n%s", prompt)
 		}
 	})
@@ -122,11 +123,11 @@ func TestBuildConversationContext(t *testing.T) {
 
 		prompt := buildConversationContext(topic, "First message")
 
-		if !ctxContains(prompt, "Empty Topic") {
+		if !strings.Contains(prompt, "Empty Topic") {
 			t.Errorf("expected topic name, got:\n%s", prompt)
 		}
 
-		if !ctxContains(prompt, "First message") {
+		if !strings.Contains(prompt, "First message") {
 			t.Errorf("expected user message, got:\n%s", prompt)
 		}
 	})
@@ -142,7 +143,7 @@ func TestBuildConversationContext(t *testing.T) {
 
 		prompt := buildConversationContext(topic, "Hello")
 
-		if !ctxContains(prompt, "(no description provided)") {
+		if !strings.Contains(prompt, "(no description provided)") {
 			t.Errorf("expected '(no description provided)' placeholder, got:\n%s", prompt)
 		}
 	})
@@ -151,7 +152,7 @@ func TestBuildConversationContext(t *testing.T) {
 func TestSummarizeMessages(t *testing.T) {
 	t.Run("empty messages returns placeholder", func(t *testing.T) {
 		summary := summarizeMessages([]topic.Message{})
-		if !ctxContains(summary, "no prior conversation") {
+		if !strings.Contains(summary, "no prior conversation") {
 			t.Errorf("expected placeholder for empty messages, got:\n%s", summary)
 		}
 	})
@@ -166,15 +167,15 @@ func TestSummarizeMessages(t *testing.T) {
 
 		summary := summarizeMessages(messages)
 
-		if !ctxContains(summary, "Key points from stakeholder") {
+		if !strings.Contains(summary, "Key points from stakeholder") {
 			t.Errorf("expected user points section, got:\n%s", summary)
 		}
 
-		if !ctxContains(summary, "Key insights and questions from analyst") {
+		if !strings.Contains(summary, "Key insights and questions from analyst") {
 			t.Errorf("expected assistant insights section, got:\n%s", summary)
 		}
 
-		if !ctxContains(summary, "user authentication") && !ctxContains(summary, "I need user authentication") {
+		if !strings.Contains(summary, "user authentication") && !strings.Contains(summary, "I need user authentication") {
 			t.Errorf("expected user content in summary, got:\n%s", summary)
 		}
 	})
@@ -207,30 +208,10 @@ func TestSummarizeMessages(t *testing.T) {
 		summary := summarizeMessages(messages)
 
 		// Should only contain the valid message
-		if !ctxContains(summary, "Valid message") {
+		if !strings.Contains(summary, "Valid message") {
 			t.Errorf("expected valid message in summary, got:\n%s", summary)
 		}
 	})
 }
 
-func ctxContains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && ctxContainsStr(s, substr)
-}
 
-func ctxContainsAll(s string, substrs ...string) bool {
-	for _, substr := range substrs {
-		if !ctxContainsStr(s, substr) {
-			return false
-		}
-	}
-	return true
-}
-
-func ctxContainsStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

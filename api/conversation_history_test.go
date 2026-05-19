@@ -7,20 +7,14 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E3-S6: User views the full conversation history for a topic
 
 func TestConversationHistory(t *testing.T) {
 	t.Run("the conversation history displays all messages in chronological order", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
 		})
 		app := suite.App
@@ -76,9 +70,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("messages are clearly labeled with role and timestamp", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
 		})
 		app := suite.App
@@ -133,9 +126,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the history is available for long conversations with many exchanges", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
 		})
 		app := suite.App
@@ -186,21 +178,9 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the history view is read-only", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-history-004"
 		store.Create(topicID, "Read Only Test", "Testing read-only history")

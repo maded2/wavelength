@@ -6,20 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E3-S11: User manually ends the interview
 
 func TestEndInterview(t *testing.T) {
 	t.Run("user can signal the agent that they are done with the interview", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Great, I'll wrap up."}}]}`))
 		})
 		app := suite.App
@@ -54,21 +48,9 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("after concluding the topic transitions to completed state", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-end-002"
 		store.Create(topicID, "Transition Test", "Testing state transition")
@@ -100,21 +82,9 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the completed topic can be reopened later", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-end-003"
 		store.Create(topicID, "Reopen Test", "Testing reopen after complete")
@@ -154,9 +124,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the conclusion is a deliberate user-driven action", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
 		})
 		app := suite.App

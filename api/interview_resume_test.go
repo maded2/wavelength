@@ -5,21 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E3-S7: User pauses and resumes an interview session
 
 func TestPauseAndResumeInterview(t *testing.T) {
 	t.Run("the user can navigate away from an interview and the conversation state is preserved", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
 		})
 		app := suite.App
@@ -67,9 +62,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("when the user returns the full conversation history is displayed", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
 		})
 		app := suite.App
@@ -126,9 +120,9 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the AI agent is aware of the full prior conversation history when resuming", func(t *testing.T) {
-		app := fiber.New()
+		var receivedPrompt string
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-buf := new(bytes.Buffer)
+			buf := new(bytes.Buffer)
 			buf.ReadFrom(r.Body)
 			receivedPrompt = buf.String()
 			w.WriteHeader(http.StatusOK)
@@ -159,15 +153,14 @@ buf := new(bytes.Buffer)
 		resp2.Body.Close()
 
 		// Verify the LLM received the prior conversation context
-		if !contains(receivedPrompt, "login system") {
+		if !strings.Contains(receivedPrompt, "login system") {
 			t.Errorf("expected LLM prompt to include prior conversation about login system, got: %s", receivedPrompt)
 		}
 	})
 
 	t.Run("the user can see the last messages to reorient themselves", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
 		})
 		app := suite.App
@@ -217,9 +210,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("resuming does not require any special save action", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Agent response."}}]}`))
 		})
 		app := suite.App

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,13 +15,15 @@ import (
 // LLMClient defines the subset of llm.Client needed by the interview service.
 type LLMClient interface {
 	Call(ctx context.Context, messages []llm.Message) (string, error)
+	CallWithTools(ctx context.Context, messages []llm.Message, tools []*llm.Tool) (string, error)
 	PersonaPrompt() string
 }
 
 // Service orchestrates the interview flow between a user, an LLM, and a topic store.
 type Service struct {
-	store  Store
-	client LLMClient
+	store    Store
+	client   LLMClient
+	dataDir  string
 }
 
 // Store defines the subset of topic persistence operations the interview service needs.
@@ -33,8 +36,9 @@ type Store interface {
 }
 
 // New creates a new interview service.
-func New(store Store, client LLMClient) *Service {
-	return &Service{store: store, client: client}
+// dataDir is the root data directory (parent of topics/) used for file tool access.
+func New(store Store, client LLMClient, dataDir string) *Service {
+	return &Service{store: store, client: client, dataDir: dataDir}
 }
 
 // HandleMessage processes a user message for a topic: builds context, calls the LLM,
@@ -52,13 +56,16 @@ func (s *Service) HandleMessage(ctx context.Context, topicID, userMessage string
 	// Build conversation context with automatic summarization
 	prompt := BuildConversationContext(topic, userMessage)
 
-	// Call the LLM
+	// Build tools for the LLM
+	tools := s.buildTools(topicID)
+
+	// Call the LLM with tool support
 	messages := []llm.Message{
 		{Role: "system", Content: s.client.PersonaPrompt()},
 		{Role: "user", Content: prompt},
 	}
 
-	assistantResponse, err := s.client.Call(ctx, messages)
+	assistantResponse, err := s.client.CallWithTools(ctx, messages, tools)
 	if err != nil {
 		return "", false, err
 	}
@@ -87,28 +94,7 @@ func (s *Service) Reevaluate(ctx context.Context, topicID string) (conversationa
 		document = "(no document yet)"
 	}
 
-	reevalPrompt := fmt.Sprintf(
-		`You are asked to re-evaluate the requirement document for this topic from scratch.
-
-Topic: %s
-High-level requirement: %s
-
-Current requirement document:
-
-%s
-
-Please review the document critically and:
-1. Identify any gaps, inconsistencies, or missing sections
-2. Suggest improvements to the structure and content
-3. Provide an updated version of the document wrapped in the following delimiters if changes are needed:
-
-=== REQUIREMENT DOCUMENT ===
-<updated document content>
-=== END REQUIREMENT DOCUMENT ===
-
-Remember to maintain the document in markdown format and wrap any updated document in the delimiters above.`,
-		topic.Name, description, document,
-	)
+	reevalPrompt := fmt.Sprintf(ReevaluationPrompt, topic.Name, description, document)
 
 	// Call LLM with re-evaluation prompt
 	messages := []llm.Message{
@@ -147,17 +133,19 @@ func (s *Service) BuildPrompt(topic *topic.Topic, userMessage string) string {
 	return BuildConversationContext(topic, userMessage)
 }
 
+// buildTools creates the list of tools available to the LLM for this topic.
+func (s *Service) buildTools(topicID string) []*llm.Tool {
+	topicDir := filepath.Join(s.dataDir, "topics", topicID)
+	return []*llm.Tool{
+		llm.FileReadTool(topicDir),
+		llm.WriteDocumentTool(topicDir, func(content string) {
+			// Update the in-memory store when the LLM writes the document
+			s.store.SetDocument(topicID, content)
+		}),
+	}
+}
+
 // --- Private helpers (extracted from api/routes.go) ---
-
-// maxContextChars is the approximate character limit for conversation context.
-const maxContextChars = 60000
-
-// maxRecentMessages is how many recent messages to keep verbatim when summarizing.
-const maxRecentMessages = 20
-
-// docDelimOpen/Close are the markers for embedded requirement documents in LLM responses.
-const docDelimOpen = "=== REQUIREMENT DOCUMENT ==="
-const docDelimClose = "=== END REQUIREMENT DOCUMENT ==="
 
 // BuildConversationContext constructs the conversation context string, applying
 // summarization when the conversation exceeds maxContextChars.
@@ -174,19 +162,19 @@ func BuildConversationContext(t *topic.Topic, userMessage string) string {
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("Topic: %s\nHigh-level requirement: %s\n", t.Name, description))
+	buf.WriteString(fmt.Sprintf(TopicHeader, t.Name, description))
 
 	// Include uploaded document attachments as reference material
 	if len(t.Attachments) > 0 {
-		buf.WriteString("\nUploaded reference documents:\n")
+		buf.WriteString(UploadedDocsHeader)
 		for _, att := range t.Attachments {
 			if att.MarkdownContent == "" {
 				continue
 			}
-			buf.WriteString(fmt.Sprintf("\n[Document: %s (%s, %d bytes)]\n", att.Filename, att.Format, att.Size))
+			buf.WriteString(fmt.Sprintf(AttachmentHeader, att.Filename, att.Format, att.Size))
 			content := att.MarkdownContent
 			if len(content) > 8000 {
-				content = content[:8000] + "\n...(truncated)"
+				content = content[:8000] + "\n" + TruncatedSuffix
 			}
 			buf.WriteString(content + "\n")
 		}
@@ -195,47 +183,31 @@ func BuildConversationContext(t *topic.Topic, userMessage string) string {
 
 	// Include current requirement document as context
 	if t.Document != "" {
-		buf.WriteString("\nCurrent requirement document:\n")
+		buf.WriteString(CurrentDocHeader)
 		doc := t.Document
 		if len(doc) > 4000 {
-			doc = doc[:4000] + "\n...(truncated for context)"
+			doc = doc[:4000] + "\n" + ContextTruncatedSuffix
 		}
 		buf.WriteString(doc + "\n")
 	} else {
-		buf.WriteString("\nNo requirement document exists yet. You should create an initial\n" +
-			"requirements document based on what you learn from the stakeholder.\n" +
-			"Wrap the complete document in the following delimiters:\n\n" +
-			"=== REQUIREMENT DOCUMENT ===\n" +
-			"<complete markdown document content here>\n" +
-			"=== END REQUIREMENT DOCUMENT ===\n")
+		buf.WriteString(NoDocYet)
 	}
 
 	// If conversation fits within limits, include everything
 	if totalChars <= maxContextChars || len(t.Messages) <= maxRecentMessages {
-		buf.WriteString("\nConversation context:\n")
+		buf.WriteString(ConversationContextHeader)
 		for _, msg := range t.Messages {
-			fmt.Fprintf(&buf, "%s: %s\n", msg.Role, msg.Content)
+			fmt.Fprintf(&buf, MessageFormat, msg.Role, msg.Content)
 		}
 
 		// First interaction — instruct the LLM to critically evaluate existing information
 		// before responding to the user's message.
 		if len(t.Messages) == 1 {
-			buf.WriteString(fmt.Sprintf(
-				"\nUser's latest message: %s\n\n"+
-					"This is the first interaction for this topic. Before responding to the user, "+
-					"critically evaluate the current requirement document and all available information above. "+
-					"Identify gaps, inconsistencies, or missing sections. "+
-					"Provide an updated version of the document wrapped in the following delimiters if improvements are needed:\n"+
-					"=== REQUIREMENT DOCUMENT ===\n"+
-					"<updated document content>\n"+
-					"=== END REQUIREMENT DOCUMENT ===\n\n"+
-					"Then address the user's message as a business analyst conducting requirements gathering.",
-				userMessage,
-			))
+			buf.WriteString(fmt.Sprintf(FirstInteractionPrompt, userMessage))
 			return buf.String()
 		}
 
-		buf.WriteString(fmt.Sprintf("\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", userMessage))
+		buf.WriteString(fmt.Sprintf(UserLatestMessagePrompt, userMessage))
 		return buf.String()
 	}
 
@@ -243,26 +215,26 @@ func BuildConversationContext(t *topic.Topic, userMessage string) string {
 	olderMessages := t.Messages[:len(t.Messages)-maxRecentMessages]
 	recentMessages := t.Messages[len(t.Messages)-maxRecentMessages:]
 
-	buf.WriteString("\nConversation summary (earlier exchanges):\n")
+	buf.WriteString(ConversationSummaryHeader)
 	buf.WriteString(SummarizeMessages(olderMessages))
 
-	buf.WriteString("\n\nRecent conversation:\n")
+	buf.WriteString(RecentConversationHeader)
 	for _, msg := range recentMessages {
-		fmt.Fprintf(&buf, "%s: %s\n", msg.Role, msg.Content)
+		fmt.Fprintf(&buf, MessageFormat, msg.Role, msg.Content)
 	}
 
-	buf.WriteString(fmt.Sprintf("\nUser's latest message: %s\n\nPlease respond as a business analyst conducting requirements gathering.", userMessage))
+	buf.WriteString(fmt.Sprintf(UserLatestMessagePrompt, userMessage))
 	return buf.String()
 }
 
 // SummarizeMessages creates a compact summary of conversation messages.
 func SummarizeMessages(messages []topic.Message) string {
 	if len(messages) == 0 {
-		return "(no prior conversation)"
+		return NoPriorConversation
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("Summary of %d earlier exchanges:\n\n", len(messages)))
+	buf.WriteString(fmt.Sprintf(SummaryHeader, len(messages)))
 
 	var userPoints []string
 	var assistantInsights []string
@@ -283,17 +255,17 @@ func SummarizeMessages(messages []topic.Message) string {
 	}
 
 	if len(userPoints) > 0 {
-		buf.WriteString("Key points from stakeholder:\n")
+		buf.WriteString(StakeholderKeyPointsHeader)
 		for i, point := range userPoints {
-			buf.WriteString(fmt.Sprintf("  %d. %s\n", i+1, point))
+			buf.WriteString(fmt.Sprintf(SummaryPointFormat, i+1, point))
 		}
 		buf.WriteString("\n")
 	}
 
 	if len(assistantInsights) > 0 {
-		buf.WriteString("Key insights and questions from analyst:\n")
+		buf.WriteString(AnalystKeyInsightsHeader)
 		for i, insight := range assistantInsights {
-			buf.WriteString(fmt.Sprintf("  %d. %s\n", i+1, insight))
+			buf.WriteString(fmt.Sprintf(SummaryPointFormat, i+1, insight))
 		}
 	}
 

@@ -8,20 +8,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E3-S1: User begins an interview for a topic
 
 func TestBeginInterview(t *testing.T) {
 	t.Run("user can initiate the interview process from a topic", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -66,9 +60,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the AI agent introduces itself as a business analyst", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -104,9 +97,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the agents first message references the high-level requirement", func(t *testing.T) {
-		app := fiber.New()
+		var receivedPrompt string
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-// Read the request body to check it contains the requirement
 			buf := new(strings.Builder)
 			io.Copy(buf, r.Body)
 			receivedPrompt = buf.String()
@@ -143,9 +135,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("if no high-level requirement is provided the agent asks the user to describe their idea", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {
@@ -182,9 +173,8 @@ w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("the conversation is displayed with clear message ownership", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{
 				"choices": [{
 					"message": {

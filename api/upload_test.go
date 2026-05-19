@@ -29,7 +29,7 @@ func readBody(t *testing.T, r io.Reader) []byte {
 func TestUploadMarkdown(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	// Create a topic
 	topicID := createTestTopic(t, app, "upload-test", "Test upload feature")
@@ -89,7 +89,7 @@ func TestUploadMarkdown(t *testing.T) {
 func TestUploadUnsupportedFormat(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	topicID := createTestTopic(t, app, "upload-test", "Test upload feature")
 
@@ -113,7 +113,7 @@ func TestUploadUnsupportedFormat(t *testing.T) {
 func TestUploadNoFile(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	topicID := createTestTopic(t, app, "upload-test", "Test upload feature")
 
@@ -135,7 +135,7 @@ func TestUploadNoFile(t *testing.T) {
 func TestUploadTopicNotFound(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -156,7 +156,7 @@ func TestUploadTopicNotFound(t *testing.T) {
 func TestUploadCompletedTopic(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	topicID := createTestTopic(t, app, "upload-test", "Test upload feature")
 	store.SetStatus(topicID, "completed")
@@ -180,7 +180,7 @@ func TestUploadCompletedTopic(t *testing.T) {
 func TestListAttachments(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	topicID := createTestTopic(t, app, "upload-test", "Test upload feature")
 
@@ -220,7 +220,7 @@ func TestListAttachments(t *testing.T) {
 func TestListAttachmentsTopicNotFound(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	resp, _ := app.Test(httptest.NewRequest(http.MethodGet, "/api/topics/nonexistent/attachments", nil))
 
@@ -232,7 +232,7 @@ func TestListAttachmentsTopicNotFound(t *testing.T) {
 func TestUploadWithPDF(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	topicID := createTestTopic(t, app, "upload-test", "Test upload feature")
 
@@ -295,7 +295,7 @@ startxref
 func TestUploadWithWord(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	topicID := createTestTopic(t, app, "upload-test", "Test upload feature")
 
@@ -339,7 +339,7 @@ func TestUploadWithWord(t *testing.T) {
 func TestUploadedDocsInContext(t *testing.T) {
 	store := topic.NewStore()
 	client := llm.NewClient(nil)
-	app := setupTestApp(store, client)
+	app := setupTestApp(store, client, t.TempDir())
 
 	topicID := createTestTopic(t, app, "context-test", "Test context with attachments")
 
@@ -383,11 +383,11 @@ func createMinimalDocx() string {
 }
 
 // setupTestApp creates a Fiber app with test routes.
-func setupTestApp(store topic.TopicStore, client *llm.Client) *fiber.App {
+func setupTestApp(store topic.TopicStore, client *llm.Client, dataDir string) *fiber.App {
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: true,
 	})
-	SetupRoutes(app, store, client)
+	SetupRoutes(app, store, client, dataDir)
 	return app
 }
 

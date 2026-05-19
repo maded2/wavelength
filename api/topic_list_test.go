@@ -8,11 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E2-S2: User views list of all topics
@@ -168,7 +163,6 @@ func TestTopicList(t *testing.T) {
 	t.Run("if there are no topics the list shows a helpful message", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		store := suite.Store
 
 		req := httptest.NewRequest("GET", "/api/topics", nil)
 		resp, err := app.Test(req)

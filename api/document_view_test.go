@@ -32,7 +32,7 @@ func TestViewRequirementDocument(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-doc-001"
 		store.Create(topicID, "Doc View Test", "Testing document view")
@@ -74,7 +74,7 @@ func TestViewRequirementDocument(t *testing.T) {
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-doc-002"
 		topic := store.Create(topicID, "Markdown Test", "Testing markdown format")
@@ -104,9 +104,8 @@ func TestViewRequirementDocument(t *testing.T) {
 	})
 
 	t.Run("the document reflects all requirement information elicited up to that point", func(t *testing.T) {
-		app := fiber.New()
 		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Noted."}}]}`))
 		})
 		app := suite.App
@@ -163,7 +162,7 @@ w.WriteHeader(http.StatusOK)
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-doc-004"
 		topic := store.Create(topicID, "Association Test", "Testing topic association")
@@ -205,7 +204,7 @@ w.WriteHeader(http.StatusOK)
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-doc-005"
 		store.Create(topicID, "New Topic", "Testing new topic document template")
@@ -258,7 +257,7 @@ w.WriteHeader(http.StatusOK)
 			DataDir: t.TempDir(),
 		}
 		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client)
+		SetupRoutes(app, store, client, cfg.DataDir)
 
 		topicID := "topic-doc-006"
 		topic := store.Create(topicID, "Update Test", "Testing document updates")
