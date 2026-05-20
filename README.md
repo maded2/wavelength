@@ -9,10 +9,11 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 ### Key Features
 
 - **AI-powered interviews** — An LLM agent acts as a business analyst, asking targeted questions to uncover requirements, edge cases, and constraints
+- **LLM tool calling** — The agent uses `read_file` and `write_document` tools to read reference documents and persist requirement documents directly, with delimiter-based extraction as a fallback
 - **Streaming responses** — Real-time token streaming via Server-Sent Events (SSE) for instant feedback as the AI responds
 - **Document upload** — Upload reference documents (Markdown, PDF, Word/DOCX) from the chat window; they are converted to Markdown and included in the AI agent's context
 - **Topic management** — Multiple independent requirement-gathering initiatives, each with isolated conversation history and a living requirement document
-- **Living documents** — Markdown requirement documents that evolve as the interview progresses, with automatic extraction from AI responses using `=== REQUIREMENT DOCUMENT ===` delimiters
+- **Living documents** — Markdown requirement documents that evolve as the interview progresses, with automatic extraction from AI responses
 - **Document export** — Download requirement documents as Markdown, PDF, or Word (DOCX)
 - **Re-evaluate command** — Clear conversation history and have the AI re-assess the requirement document from scratch with `/reevaluate`
 - **Context management** — Automatic conversation summarization for long interviews to stay within LLM context windows
@@ -25,7 +26,7 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 |---|---|
 | Language | Go 1.25 |
 | Web framework | [Fiber](https://github.com/gofiber/fiber) v2 |
-| LLM integration | [Eino](https://github.com/cloudwego/eino) framework — OpenAI-compatible chat model with streaming |
+| LLM integration | [Eino](https://github.com/cloudwego/eino) framework — OpenAI-compatible chat model with streaming and tool calling |
 | PDF generation | [gofpdf](https://github.com/jung-kurt/gofpdf) |
 | PDF parsing | [ledongthuc/pdf](https://github.com/ledongthuc/pdf) |
 | Persistence | File-based (JSON + JSONL + Markdown) with atomic writes |
@@ -74,8 +75,10 @@ Example configuration:
 | Field | Description |
 |---|---|
 | `llm.timeout` | HTTP request timeout in seconds (default: 60) |
-| `llm.path` | *(reserved for future use — eino handles the API path internally)* |
+| `llm.path` | *(unused — eino uses `endpoint` as the base URL directly)* |
 | `persona.system_prompt` | Custom system prompt (uses sensible default if empty) |
+
+**Required fields**: `server.port`, `llm.provider`, `llm.model`, `llm.endpoint`, `llm.api_key`, `data_dir`. Missing fields cause a startup error with a descriptive message.
 
 ### Running
 
@@ -104,7 +107,7 @@ You can also specify a custom config file:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Landing page |
-| `GET` | `/health` | Health check (includes LLM connectivity status) |
+| `GET` | `/health` | Health check (live LLM connectivity probe, ~3s timeout) |
 | `GET` | `/topics/:id` | Topic chat page (HTML UI) |
 | `GET` | `/api/topics` | List all topics |
 | `POST` | `/api/topics` | Create a new topic |
@@ -117,6 +120,23 @@ You can also specify a custom config file:
 | `POST` | `/api/topics/:id/upload` | Upload reference document (Markdown, PDF, DOCX) |
 | `GET` | `/api/topics/:id/attachments` | List topic attachments |
 | `GET` | `/api/topics/:id/document/download` | Download document (`?format=markdown\|pdf\|word`) |
+
+### Create a Topic
+
+```
+POST /api/topics
+Content-Type: application/json
+
+{
+  "name": "My Project",
+  "description": "A high-level description of the project",
+  "document": "..."  // optional — pre-existing requirement document
+}
+```
+
+If `document` is provided, the topic starts with that content instead of the default template.
+
+Topic names must be unique — creating a topic with a duplicate name returns `409 Conflict`.
 
 ### Streaming Messages
 
@@ -172,9 +192,9 @@ Type these in the chat input:
 cmd/server/         — main entrypoint
 internal/
   config/           — JSON config loading and validation
-  llm/              — LLM client backed by Eino's OpenAI-compatible chat model (streaming + non-streaming)
+  llm/              — LLM client (Eino + OpenAI-compatible), tool calling, streaming
   topic/            — Topic CRUD, file-based persistence, and type definitions
-  interview/        — Interview orchestration (agent flow, state management)
+  interview/        — Interview orchestration service (context building, document extraction)
   convert/          — Document format conversion (PDF, DOCX → Markdown)
   export/           — Document export (Markdown, PDF, Word)
 api/                — Fiber handlers and routes
@@ -198,11 +218,28 @@ All tests use mocked LLM clients — no real API calls are made during testing.
 ### Interview Orchestration
 
 The interview layer (`internal/interview/`) manages the conversational flow between the user and the LLM-powered business analyst agent. It:
-- Maintains the state machine for interview progression
 - Constructs the LLM context (system prompt + message history + requirement document + attachments)
-- Handles streaming token responses from the LLM
+- Calls the LLM with tool support (non-streaming) and extracts document updates
 - Parses `=== REQUIREMENT DOCUMENT ===` delimiters from LLM responses to extract document updates
+- Handles the `/reevaluate` command (clear history, re-assess document from scratch)
 - Coordinates with the topic and conversation stores for persistence
+
+Streaming responses are handled directly in the API layer (`api/routes.go`), which pipes LLM tokens to the client via SSE and then performs post-stream document extraction.
+
+### LLM Tool Calling
+
+The LLM agent has access to two tools during conversations:
+
+- **`read_file`** — Read files from the topic directory (uploaded attachments, current requirement document). Prevents directory traversal attacks.
+- **`write_document`** — Save the complete requirement document to `document.md`. Called by the LLM when it has finalized document content.
+
+Document updates can come from two sources:
+1. **Tool-based** (primary) — The LLM calls `write_document` with the full document content
+2. **Delimiter-based** (fallback) — The LLM wraps the document in `=== REQUIREMENT DOCUMENT ===` delimiters, which the backend extracts
+
+The non-streaming message endpoint (`POST /api/topics/:id/messages`) calls the LLM with tools directly, so the agent can use `read_file` and `write_document` in a single turn.
+
+The streaming endpoint (`POST /api/topics/:id/messages/stream`) does not pass tools to the LLM during the token stream. Instead, after the stream completes, if no delimiter-based document was extracted, a follow-up non-streaming tool call is made so the LLM can use `write_document` to persist the document.
 
 ### Persistence
 
@@ -210,12 +247,15 @@ Topics are stored as directories on disk:
 
 ```
 data/topics/<topic-id>/
-  meta.json       — Topic metadata (name, status, timestamps)
-  messages.jsonl  — Conversation messages (one JSON per line)
-  document.md     — Living requirement document
+  meta.json           — Topic metadata (name, status, timestamps)
+  messages.jsonl      — Conversation messages (one JSON per line)
+  document.md         — Living requirement document
+  attachments.json    — Uploaded reference document metadata and converted markdown
 ```
 
-All writes use **atomic write-to-temp-then-rename** to prevent corruption on crash. File locking (`gofrs/flock`) ensures safe concurrent access.
+All writes use **atomic write-to-temp-then-rename** to prevent corruption on crash. File locking (`gofrs/flock`) ensures safe concurrent access. A global lock protects bulk load/save operations; per-operation writes use in-memory mutexes.
+
+The file store also supports **legacy migration**: topics saved in the old single-file JSON format are automatically migrated to the directory format on first load.
 
 Topics are persisted:
 - Every 10 seconds (periodic background save)
@@ -232,7 +272,11 @@ For long conversations, Wavelength automatically:
 
 ### Document Updates
 
-The AI agent wraps updated requirement documents in `=== REQUIREMENT DOCUMENT ===` delimiters:
+The AI agent can update documents in two ways:
+
+**Tool calling** (primary): The agent calls the `write_document` tool with the complete markdown content.
+
+**Delimiters** (fallback): The agent wraps the updated document in `=== REQUIREMENT DOCUMENT ===` delimiters:
 
 ```
 === REQUIREMENT DOCUMENT ===
@@ -254,6 +298,38 @@ The backend extracts content between delimiters and saves it as the topic's requ
 | `completed` | Interview finished (messages and uploads blocked until reopened) |
 
 Status transitions: `not_started` → `active` (automatic on first message), `active` → `completed`, `completed` → `active` (via `PATCH /api/topics/:id`).
+
+### Default Document Template
+
+New topics are initialized with a structured markdown template:
+
+```markdown
+# Requirements: <topic-name>
+
+## Overview
+
+<description>
+
+## Functional Requirements
+
+(To be elaborated during the interview)
+
+## Non-Functional Requirements
+
+(To be elaborated during the interview)
+
+## Stakeholders
+
+(To be identified during the interview)
+
+## Constraints
+
+(To be identified during the interview)
+
+## Open Questions
+
+(To be resolved during the interview)
+```
 
 ## Design Principles
 
