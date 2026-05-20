@@ -7,32 +7,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E4-S1: User views the current requirement document for a topic
 
 func TestViewRequirementDocument(t *testing.T) {
 	t.Run("the requirement document is accessible from the topic detail view", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-doc-001"
 		store.Create(topicID, "Doc View Test", "Testing document view")
@@ -60,21 +43,9 @@ func TestViewRequirementDocument(t *testing.T) {
 	})
 
 	t.Run("the document is displayed in readable markdown format", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-doc-002"
 		topic := store.Create(topicID, "Markdown Test", "Testing markdown format")
@@ -108,6 +79,7 @@ func TestViewRequirementDocument(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Noted."}}]}`))
 		})
+		defer suite.Cleanup(t)
 		app := suite.App
 		store := suite.Store
 
@@ -148,21 +120,9 @@ func TestViewRequirementDocument(t *testing.T) {
 	})
 
 	t.Run("the document is clearly associated with its topic", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-doc-004"
 		topic := store.Create(topicID, "Association Test", "Testing topic association")
@@ -190,21 +150,9 @@ func TestViewRequirementDocument(t *testing.T) {
 	})
 
 	t.Run("a newly created topic has a blank requirement document template", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-doc-005"
 		store.Create(topicID, "New Topic", "Testing new topic document template")
@@ -243,21 +191,9 @@ func TestViewRequirementDocument(t *testing.T) {
 	})
 
 	t.Run("the document view updates when the document is modified", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-doc-006"
 		topic := store.Create(topicID, "Update Test", "Testing document updates")

@@ -14,6 +14,7 @@ import (
 	"wavelength/api"
 	"wavelength/internal/config"
 	"wavelength/internal/llm"
+	"wavelength/internal/mcp"
 	"wavelength/internal/topic"
 )
 
@@ -52,13 +53,28 @@ func main() {
 	}
 	log.Printf("Loaded %d topics from %s", len(store.List()), cfg.DataDir)
 
+	// Initialize MCP client manager for external tool servers
+	var mcpMgr *mcp.Manager
+	if cfg.HasMCP() {
+		mcpMgr = mcp.New(&cfg.MCP)
+		mcpCtx, mcpCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := mcpMgr.Connect(mcpCtx); err != nil {
+			log.Printf("WARNING: MCP initialization failed: %v", err)
+			log.Println("The application will start, but MCP tools will be unavailable.")
+			mcpMgr = nil
+		}
+		mcpCancel()
+	} else {
+		log.Println("[MCP] No MCP servers configured — skipping MCP initialization")
+	}
+
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: false,
 	})
 
 	// Register all routes
-	api.SetupRoutes(app, store, client, cfg.DataDir)
+	api.SetupRoutes(app, store, client, cfg.DataDir, mcpMgr)
 
 	// Persist topics on shutdown
 	go func() {
@@ -68,6 +84,12 @@ func main() {
 		log.Println("Shutting down... persisting topics to disk.")
 		if err := store.SaveAll(); err != nil {
 			log.Printf("Failed to persist topics on shutdown: %v", err)
+		}
+		// Close MCP connections
+		if mcpMgr != nil {
+			if err := mcpMgr.Close(); err != nil {
+				log.Printf("Failed to close MCP connections: %v", err)
+			}
 		}
 		os.Exit(0)
 	}()

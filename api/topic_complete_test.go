@@ -6,31 +6,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E2-S6: User marks a topic as complete
 
 func TestMarkTopicComplete(t *testing.T) {
 	t.Run("user can mark a topic as complete", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-complete-001"
 		store.Create(topicID, "Complete Me", "A topic to complete")
@@ -61,20 +45,9 @@ func TestMarkTopicComplete(t *testing.T) {
 	})
 
 	t.Run("a completed topic is visually distinguished from active topics in the topic list", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		// Create two topics
 		activeID := "topic-active-001"
@@ -128,20 +101,9 @@ func TestMarkTopicComplete(t *testing.T) {
 	})
 
 	t.Run("the requirement document for a completed topic remains viewable", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-complete-002"
 		topic := store.Create(topicID, "Doc Topic", "Has a document")
@@ -178,20 +140,9 @@ func TestMarkTopicComplete(t *testing.T) {
 	})
 
 	t.Run("completed topics cannot have new interview messages added without reopening", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-complete-003"
 		store.Create(topicID, "Completed Topic", "Cannot add messages")
@@ -221,20 +172,9 @@ func TestMarkTopicComplete(t *testing.T) {
 	})
 
 	t.Run("user can mark a topic complete at any time even if no interview has started", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-complete-004"
 		store.Create(topicID, "Empty Topic", "No interview started")
@@ -261,6 +201,68 @@ func TestMarkTopicComplete(t *testing.T) {
 
 		if result["status"] != "completed" {
 			t.Errorf("expected status 'completed', got %v", result["status"])
+		}
+	})
+
+	// E3-S11: User manually ends the interview
+	t.Run("conclusion is a deliberate user-driven action", func(t *testing.T) {
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
+		})
+		defer suite.Cleanup(t)
+		app := suite.App
+		store := suite.Store
+
+		topicID := "topic-end-004"
+		store.Create(topicID, "Deliberate End", "Testing deliberate conclusion")
+
+		// Topic should start as not_started
+		detailReq := httptest.NewRequest("GET", "/api/topics/"+topicID, nil)
+		detailResp, _ := app.Test(detailReq)
+		var detail map[string]interface{}
+		json.NewDecoder(detailResp.Body).Decode(&detail)
+		detailResp.Body.Close()
+
+		if detail["status"] != "not_started" {
+			t.Errorf("expected initial status 'not_started', got %v", detail["status"])
+		}
+
+		// Send a message (topic becomes active)
+		payload := map[string]string{"content": "Let's start"}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest("POST", "/api/topics/"+topicID+"/messages", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, _ := app.Test(req)
+		resp.Body.Close()
+
+		// Topic should now be active, not completed
+		detailReq2 := httptest.NewRequest("GET", "/api/topics/"+topicID, nil)
+		detailResp2, _ := app.Test(detailReq2)
+		var detail2 map[string]interface{}
+		json.NewDecoder(detailResp2.Body).Decode(&detail2)
+		detailResp2.Body.Close()
+
+		if detail2["status"] != "active" {
+			t.Errorf("expected status 'active' after message, got %v", detail2["status"])
+		}
+
+		// Only explicit PATCH to completed should change it
+		payload2 := map[string]string{"status": "completed"}
+		body2, _ := json.Marshal(payload2)
+		req2 := httptest.NewRequest("PATCH", "/api/topics/"+topicID, bytes.NewReader(body2))
+		req2.Header.Set("Content-Type", "application/json")
+		resp2, _ := app.Test(req2)
+		resp2.Body.Close()
+
+		detailReq3 := httptest.NewRequest("GET", "/api/topics/"+topicID, nil)
+		detailResp3, _ := app.Test(detailReq3)
+		var detail3 map[string]interface{}
+		json.NewDecoder(detailResp3.Body).Decode(&detail3)
+		detailResp3.Body.Close()
+
+		if detail3["status"] != "completed" {
+			t.Errorf("expected status 'completed' after explicit PATCH, got %v", detail3["status"])
 		}
 	})
 }

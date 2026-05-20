@@ -40,7 +40,7 @@ func testApp(t *testing.T) *fiber.App {
 		DataDir: t.TempDir(),
 	}
 	client := llm.NewClient(cfg)
-	SetupRoutes(app, store, client, cfg.DataDir)
+	SetupRoutes(app, store, client, cfg.DataDir, nil)
 	return app
 }
 
@@ -66,7 +66,7 @@ func newSuite(t *testing.T) *TestSuite {
 	}
 	client := llm.NewClient(cfg)
 	app := fiber.New()
-	SetupRoutes(app, store, client, cfg.DataDir)
+	SetupRoutes(app, store, client, cfg.DataDir, nil)
 	return &TestSuite{App: app, Store: store, Client: client, Config: cfg, Dir: t.TempDir()}
 }
 
@@ -93,7 +93,7 @@ func newSuiteWithMock(t *testing.T, handler http.HandlerFunc) *SuiteWithMock {
 	client := llm.NewClient(cfg)
 	store := topic.NewStore()
 	app := fiber.New()
-	SetupRoutes(app, store, client, cfg.DataDir)
+	SetupRoutes(app, store, client, cfg.DataDir, nil)
 	return &SuiteWithMock{
 		TestSuite:  &TestSuite{App: app, Store: store, Client: client, Config: cfg, Dir: t.TempDir()},
 		MockServer: server,
@@ -114,7 +114,7 @@ func newSuiteWithMockConfig(t *testing.T, handler http.HandlerFunc, llmCfg confi
 	client := llm.NewClient(cfg)
 	store := topic.NewStore()
 	app := fiber.New()
-	SetupRoutes(app, store, client, cfg.DataDir)
+	SetupRoutes(app, store, client, cfg.DataDir, nil)
 	return &SuiteWithMock{
 		TestSuite:  &TestSuite{App: app, Store: store, Client: client, Config: cfg, Dir: t.TempDir()},
 		MockServer: server,

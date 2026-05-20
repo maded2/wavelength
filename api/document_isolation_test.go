@@ -5,32 +5,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E4-S4: Each topic has its own isolated requirement document
 
 func TestDocumentIsolation(t *testing.T) {
 	t.Run("each topic is associated with exactly one requirement document", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicA := "topic-doc-iso-a"
 		topicB := "topic-doc-iso-b"
@@ -71,21 +54,9 @@ func TestDocumentIsolation(t *testing.T) {
 	})
 
 	t.Run("the document for Topic A contains only information from Topic As interview", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicA := "topic-doc-iso-a2"
 		topicB := "topic-doc-iso-b2"
@@ -110,21 +81,9 @@ func TestDocumentIsolation(t *testing.T) {
 	})
 
 	t.Run("the document for Topic B contains only information from Topic Bs interview", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicA := "topic-doc-iso-a3"
 		topicB := "topic-doc-iso-b3"
@@ -153,6 +112,7 @@ func TestDocumentIsolation(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
 		})
+		defer suite.Cleanup(t)
 		app := suite.App
 		store := suite.Store
 
@@ -176,27 +136,12 @@ func TestDocumentIsolation(t *testing.T) {
 		if docA != "# Topic A Document\n\nSecret A content" {
 			t.Errorf("Topic A document shows wrong content: %s", docA)
 		}
-		if docA != "" && docA != "# Topic A Document\n\nSecret A content" {
-			t.Error("Topic A document may be contaminated")
-		}
 	})
 
 	t.Run("if Topic A is deleted Topic Bs document is unaffected", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicA := "topic-doc-iso-a5"
 		topicB := "topic-doc-iso-b5"

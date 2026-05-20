@@ -6,15 +6,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
 )
 
 // E1-S3: User accesses the web application from a browser
 
 func TestLandingPage(t *testing.T) {
-	app := fiber.New()
-	app.Get("/", LandingPage)
+	suite := newSuite(t)
+	app := suite.App
 
 	tests := []struct {
 		name           string

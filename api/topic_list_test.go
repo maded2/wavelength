@@ -44,7 +44,7 @@ func TestTopicList(t *testing.T) {
 		}
 	})
 
-	t.Run("each topic entry shows the topic name, status, and last updated time", func(t *testing.T) {
+	t.Run("topic entry includes the topic name", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
 		store := suite.Store
@@ -67,21 +67,56 @@ func TestTopicList(t *testing.T) {
 			t.Fatalf("expected 1 topic, got %d", len(topics))
 		}
 
-		entry := topics[0]
-
-		// Check name
-		if entry["name"] == "" || entry["name"] == nil {
+		if topics[0]["name"] == "" || topics[0]["name"] == nil {
 			t.Error("expected topic entry to have a name")
 		}
+	})
 
-		// Check status
-		status, ok := entry["status"].(string)
+	t.Run("topic entry includes the topic status", func(t *testing.T) {
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
+
+		store.Create("topic-0000000000000000002", "My Topic", "A test topic")
+
+		req := httptest.NewRequest("GET", "/api/topics", nil)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("failed to make request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var topics []map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&topics); err != nil {
+			t.Fatalf("expected JSON array, got: %v", err)
+		}
+
+		status, ok := topics[0]["status"].(string)
 		if !ok || status == "" {
 			t.Error("expected topic entry to have a status")
 		}
+	})
 
-		// Check updated_at
-		if entry["updated_at"] == "" || entry["updated_at"] == nil {
+	t.Run("topic entry includes last updated timestamp", func(t *testing.T) {
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
+
+		store.Create("topic-0000000000000000003", "My Topic", "A test topic")
+
+		req := httptest.NewRequest("GET", "/api/topics", nil)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("failed to make request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var topics []map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&topics); err != nil {
+			t.Fatalf("expected JSON array, got: %v", err)
+		}
+
+		if topics[0]["updated_at"] == "" || topics[0]["updated_at"] == nil {
 			t.Error("expected topic entry to have an updated_at timestamp")
 		}
 	})

@@ -214,7 +214,7 @@ func TestHandleMessage(t *testing.T) {
 		store := topic.NewStore()
 		store.Create("t1", "Test", "Description")
 		client := &mockLLM{response: "Assistant reply"}
-		svc := New(store, client, "")
+		svc := New(store, client, "", nil)
 
 		conv, docUpdated, err := svc.HandleMessage(context.Background(), "t1", "Hello")
 		if err != nil {
@@ -237,7 +237,7 @@ func TestHandleMessage(t *testing.T) {
 		store := topic.NewStore()
 		store.Create("t2", "Test", "Description")
 		client := &mockLLM{response: "Here's the doc:\n=== REQUIREMENT DOCUMENT ===\n# New Requirements\n=== END REQUIREMENT DOCUMENT ===\nDone!"}
-		svc := New(store, client, "")
+		svc := New(store, client, "", nil)
 
 		_, docUpdated, err := svc.HandleMessage(context.Background(), "t2", "Start")
 		if err != nil {
@@ -256,7 +256,7 @@ func TestHandleMessage(t *testing.T) {
 	t.Run("returns error when topic not found", func(t *testing.T) {
 		store := topic.NewStore()
 		client := &mockLLM{}
-		svc := New(store, client, "")
+		svc := New(store, client, "", nil)
 
 		_, _, err := svc.HandleMessage(context.Background(), "nonexistent", "Hello")
 		if err == nil {
@@ -268,7 +268,7 @@ func TestHandleMessage(t *testing.T) {
 		store := topic.NewStore()
 		store.Create("t3", "Test", "Description")
 		client := &mockLLM{err: fmt.Errorf("connection refused")}
-		svc := New(store, client, "")
+		svc := New(store, client, "", nil)
 
 		_, _, err := svc.HandleMessage(context.Background(), "t3", "Hello")
 		if err == nil {
@@ -288,7 +288,7 @@ func TestReevaluate(t *testing.T) {
 		store.AddMessage("t4", "assistant", "Old response")
 
 		client := &mockLLM{response: "Re-evaluated!\n=== REQUIREMENT DOCUMENT ===\n# Updated Doc\n=== END REQUIREMENT DOCUMENT ==="}
-		svc := New(store, client, "")
+		svc := New(store, client, "", nil)
 
 		conv, docUpdated, err := svc.Reevaluate(context.Background(), "t4")
 		if err != nil {
@@ -310,7 +310,7 @@ func TestReevaluate(t *testing.T) {
 	t.Run("returns error when topic not found", func(t *testing.T) {
 		store := topic.NewStore()
 		client := &mockLLM{}
-		svc := New(store, client, "")
+		svc := New(store, client, "", nil)
 
 		_, _, err := svc.Reevaluate(context.Background(), "nonexistent")
 		if err == nil {

@@ -18,6 +18,7 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 - **Re-evaluate command** — Clear conversation history and have the AI re-assess the requirement document from scratch with `/reevaluate`
 - **Context management** — Automatic conversation summarization for long interviews to stay within LLM context windows
 - **Configurable LLM backend** — Swap providers, models, and endpoints via a single JSON config file — no code changes needed
+- **MCP tool integration** — Connect to external MCP servers (stdio or SSE transport) to give the AI agent access to additional tools like filesystem access, web search, databases, and more
 - **Standalone binary** — No databases, no message queues, no external infrastructure. File-based persistence with atomic writes and file locking.
 
 ## Tech Stack
@@ -31,6 +32,7 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 | PDF parsing | [ledongthuc/pdf](https://github.com/ledongthuc/pdf) |
 | Persistence | File-based (JSON + JSONL + Markdown) with atomic writes |
 | File locking | [gofrs/flock](https://github.com/gofrs/flock) |
+| MCP client | [modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk) — stdio and SSE transports |
 | Configuration | Single JSON file |
 
 ## Quick Start
@@ -68,6 +70,9 @@ Example configuration:
   "persona": {
     "system_prompt": ""
   },
+  "mcp": {
+    "servers": []
+  },
   "data_dir": "./data"
 }
 ```
@@ -77,6 +82,7 @@ Example configuration:
 | `llm.timeout` | HTTP request timeout in seconds (default: 60) |
 | `llm.path` | *(unused — eino uses `endpoint` as the base URL directly)* |
 | `persona.system_prompt` | Custom system prompt (uses sensible default if empty) |
+| `mcp.servers` | Array of MCP server configs (see [MCP Support](#mcp-support)) |
 
 **Required fields**: `server.port`, `llm.provider`, `llm.model`, `llm.endpoint`, `llm.api_key`, `data_dir`. Missing fields cause a startup error with a descriptive message.
 
@@ -186,6 +192,155 @@ Type these in the chat input:
 |---|---|
 | `/reevaluate` | Clears all conversation history and asks the AI to re-assess the requirement document from scratch |
 
+## MCP Support
+
+Wavelength can connect to external [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers to give the AI agent access to additional tools beyond the built-in `read_file` and `write_document`. This enables the agent to perform web searches, read/write files on the host system, query databases, or use any other MCP-compatible tool during requirement-gathering interviews.
+
+### How It Works
+
+At startup, Wavelength connects to each configured MCP server and discovers its available tools. These tools are then injected into the LLM's tool list alongside the built-in tools. When the LLM decides to call an MCP tool, Wavelength routes the call to the correct server, executes it, and returns the result.
+
+Tool names are prefixed with the server name to avoid collisions: `mcp::<server>::<tool>`.
+
+### Supported Transports
+
+| Transport | Description | Use Case |
+|---|---|---|
+| `stdio` | Runs a local command and communicates via stdin/stdout | npm/npx servers, Python servers, any local executable |
+| `sse` | Connects to a remote SSE endpoint | Remote MCP servers, cloud-hosted tools |
+
+### Configuration
+
+Add an `mcp` section to your config file with a `servers` array:
+
+```json
+{
+  "mcp": {
+    "servers": [
+      {
+        "name": "filesystem",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"],
+        "timeout": 10
+      },
+      {
+        "name": "web_search",
+        "transport": "sse",
+        "url": "http://localhost:3001/sse",
+        "timeout": 15
+      }
+    ]
+  }
+}
+```
+
+### Server Configuration Fields
+
+| Field | Transport | Description |
+|---|---|---|
+| `name` | both | Display name for the server (used in tool name prefix, e.g., `mcp::filesystem::read_file`) |
+| `transport` | both | Connection type: `"stdio"` or `"sse"` |
+| `command` | stdio | Executable to run (e.g., `"npx"`, `"uvx"`, `"python3"`) |
+| `args` | stdio | Command-line arguments (e.g., `["-y", "@modelcontextprotocol/server-filesystem", "/path"]`) |
+| `env` | stdio | Environment variables as a key-value map (merged with system env) |
+| `url` | sse | SSE endpoint URL (e.g., `"http://localhost:3001/sse"`) |
+| `timeout` | both | Connection timeout in seconds (default: 10) |
+
+### Example: Filesystem Server (stdio)
+
+Give the AI agent read/write access to a specific directory on the host:
+
+```json
+{
+  "mcp": {
+    "servers": [
+      {
+        "name": "filesystem",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"],
+        "timeout": 10
+      }
+    ]
+  }
+}
+```
+
+The AI agent can then read and write files within `/home/user/projects` during interviews. Available tools depend on the server implementation (typically `read_file`, `write_file`, `list_directory`, etc.).
+
+### Example: Web Search Server (SSE)
+
+Connect to a remote MCP server that provides web search capabilities:
+
+```json
+{
+  "mcp": {
+    "servers": [
+      {
+        "name": "web_search",
+        "transport": "sse",
+        "url": "http://localhost:3001/sse",
+        "timeout": 15
+      }
+    ]
+  }
+}
+```
+
+### Example: Multiple Servers
+
+Combine multiple MCP servers for a powerful research-capable agent:
+
+```json
+{
+  "mcp": {
+    "servers": [
+      {
+        "name": "filesystem",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+        "timeout": 10
+      },
+      {
+        "name": "fetch",
+        "transport": "stdio",
+        "command": "uvx",
+        "args": ["mcp-server-fetch"],
+        "timeout": 15
+      },
+      {
+        "name": "database",
+        "transport": "sse",
+        "url": "http://localhost:8080/sse",
+        "timeout": 10
+      }
+    ]
+  }
+}
+```
+
+### Graceful Degradation
+
+- If no MCP servers are configured (or `mcp.servers` is empty), MCP support is silently skipped
+- If a server fails to connect at startup, a warning is logged and the application continues with remaining servers
+- If all servers fail, the application still runs with only built-in tools
+- MCP connections are closed cleanly on application shutdown
+
+### Logging
+
+MCP activity is logged with the `[MCP]` prefix:
+
+```
+[MCP] Connecting to 2 MCP server(s)...
+[MCP] Connected to MCP server "filesystem" (stdio transport)
+[MCP] Server "filesystem": discovered 5 tool(s)
+[MCP] MCP initialization complete: 5 tool(s) available from connected servers
+[MCP-TOOL] Executing "mcp::filesystem::read_file"
+[MCP-TOOL] mcp::filesystem::read_file completed (1024 bytes result)
+```
+
 ## Project Structure
 
 ```
@@ -193,6 +348,7 @@ cmd/server/         — main entrypoint
 internal/
   config/           — JSON config loading and validation
   llm/              — LLM client (Eino + OpenAI-compatible), tool calling, streaming
+  mcp/              — MCP client manager, server connections, tool conversion
   topic/            — Topic CRUD, file-based persistence, and type definitions
   interview/        — Interview orchestration service (context building, document extraction)
   convert/          — Document format conversion (PDF, DOCX → Markdown)
@@ -211,7 +367,47 @@ make test     # runs all tests
 go test ./... # equivalent
 ```
 
-All tests use mocked LLM clients — no real API calls are made during testing.
+### Test Suite
+
+Wavelength follows **Acceptance Test Driven Development (ATDD)** — every test traces to a user story via `E{epic}-S{story}` references (e.g., `E2-S1`, `E3-S9`).
+
+| Metric | Value |
+|---|---|
+| Test files | 31 across 8 packages |
+| Suite runtime | ~0.13s |
+| Farley Score | **8.1/10** (Excellent) |
+| Mocking | All LLM calls mocked via `httptest.NewServer`; no real API calls |
+| Isolation | Each test uses `t.TempDir()` + in-memory stores — no shared state |
+
+#### Test Structure
+
+```
+api/                    — API integration tests (HTTP handlers, routes, full request/response cycle)
+  testutil.go           — Shared test helpers: newSuite(), newSuiteWithMock(), MustDecodeJSON[T], etc.
+internal/config/        — Config loading, validation, persona prompt tests
+internal/convert/       — Document format conversion (PDF, DOCX → Markdown)
+internal/export/        — Document export (Markdown, PDF, Word)
+internal/interview/     — Interview service: context building, document extraction, summarization
+internal/llm/           — LLM client: connectivity, tool calling, streaming
+internal/mcp/           — MCP client: server name extraction, schema conversion
+internal/topic/         — Topic persistence: file store save/load, document persistence
+```
+
+#### Test Helpers
+
+The `api/testutil.go` package provides shared test infrastructure:
+
+| Helper | Purpose |
+|---|---|
+| `newSuite(t)` | Creates a `TestSuite` with Fiber app, in-memory store, config, and temp dir |
+| `newSuiteWithMock(t, handler)` | Creates a suite wired to an `httptest.NewServer` for LLM mocking |
+| `suite.PostJSON(t, path, body)` | Sends a JSON POST request and returns body + status |
+| `suite.Get(t, path)` | Sends a GET request and returns body + status |
+| `MustDecodeJSON[T](t, body, v)` | Generic JSON decoder that fails the test on error |
+| `AssertErrorContains(t, body, substr)` | Asserts a JSON error response contains a substring |
+| `CreateTopic(t, app, name, desc)` | Creates a topic via the API and returns its ID |
+
+All tests use these helpers — no inline Fiber app or config duplication.
 
 ## Architecture
 
@@ -228,10 +424,16 @@ Streaming responses are handled directly in the API layer (`api/routes.go`), whi
 
 ### LLM Tool Calling
 
-The LLM agent has access to two tools during conversations:
+The LLM agent has access to built-in tools plus any configured MCP tools during conversations:
+
+**Built-in tools:**
 
 - **`read_file`** — Read files from the topic directory (uploaded attachments, current requirement document). Prevents directory traversal attacks.
 - **`write_document`** — Save the complete requirement document to `document.md`. Called by the LLM when it has finalized document content.
+
+**MCP tools:**
+
+Tools from connected MCP servers are automatically injected into the LLM's tool list. They are prefixed with `mcp::<server>::` to avoid naming collisions (e.g., `mcp::filesystem::read_file`). The MCP manager handles connection lifecycle, tool discovery, schema conversion, and call routing transparently.
 
 Document updates can come from two sources:
 1. **Tool-based** (primary) — The LLM calls `write_document` with the full document content

@@ -8,31 +8,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E2-S1: User creates a new requirement-gathering topic
 
 func TestCreateTopic(t *testing.T) {
 	t.Run("user can create a topic by providing a name and high-level description", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		payload := map[string]string{
 			"name":        "E-Commerce Platform",
@@ -66,23 +50,17 @@ func TestCreateTopic(t *testing.T) {
 		if created["id"] == "" || created["id"] == nil {
 			t.Error("expected topic to have an ID")
 		}
+
+		// Verify topic was stored
+		topics := store.List()
+		if len(topics) != 1 {
+			t.Fatalf("expected 1 topic in store, got %d", len(topics))
+		}
 	})
 
 	t.Run("topic name is required with a clear error message", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
 
 		payload := map[string]string{
 			"name":        "",
@@ -105,7 +83,6 @@ func TestCreateTopic(t *testing.T) {
 		respBody, _ := io.ReadAll(resp.Body)
 		respStr := string(respBody)
 
-		// Error message should mention that name is required
 		lowerResp := strings.ToLower(respStr)
 		if !strings.Contains(lowerResp, "name") || !strings.Contains(lowerResp, "required") {
 			t.Errorf("expected error message about required name, got: %s", respStr)
@@ -113,20 +90,8 @@ func TestCreateTopic(t *testing.T) {
 	})
 
 	t.Run("high-level description is required with explanation of its purpose", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
 
 		payload := map[string]string{
 			"name":        "My Topic",
@@ -149,7 +114,6 @@ func TestCreateTopic(t *testing.T) {
 		respBody, _ := io.ReadAll(resp.Body)
 		respStr := string(respBody)
 
-		// Error message should explain that description is what the AI agent uses to begin the interview
 		lowerResp := strings.ToLower(respStr)
 		if !strings.Contains(lowerResp, "description") || !strings.Contains(lowerResp, "required") {
 			t.Errorf("expected error message about required description, got: %s", respStr)
@@ -160,20 +124,8 @@ func TestCreateTopic(t *testing.T) {
 	})
 
 	t.Run("upon creation the topic appears in the user's topic list", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
 
 		// Create a topic
 		payload := map[string]string{
@@ -213,20 +165,8 @@ func TestCreateTopic(t *testing.T) {
 	})
 
 	t.Run("each newly created topic is independent and isolated from all other topics", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
 
 		// Create two topics
 		topicA := map[string]string{
@@ -291,20 +231,8 @@ func TestCreateTopic(t *testing.T) {
 	})
 
 	t.Run("duplicate topic name is rejected with guidance to choose a different name", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
 
 		// Create first topic
 		payload1 := map[string]string{
@@ -329,13 +257,13 @@ func TestCreateTopic(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to make request: %v", err)
 		}
-		defer resp2.Body.Close()
 
 		if resp2.StatusCode != http.StatusConflict {
 			t.Errorf("expected status 409 Conflict, got %d", resp2.StatusCode)
 		}
 
 		respBody, _ := io.ReadAll(resp2.Body)
+		resp2.Body.Close()
 		respStr := string(respBody)
 
 		// Error message should inform about duplicate name

@@ -24,6 +24,7 @@ type Service struct {
 	store    Store
 	client   LLMClient
 	dataDir  string
+	mcpTools []*llm.Tool // Optional MCP tools from external servers
 }
 
 // Store defines the subset of topic persistence operations the interview service needs.
@@ -37,8 +38,14 @@ type Store interface {
 
 // New creates a new interview service.
 // dataDir is the root data directory (parent of topics/) used for file tool access.
-func New(store Store, client LLMClient, dataDir string) *Service {
-	return &Service{store: store, client: client, dataDir: dataDir}
+// mcpTools are optional tools from external MCP servers.
+func New(store Store, client LLMClient, dataDir string, mcpTools []*llm.Tool) *Service {
+	return &Service{
+		store:    store,
+		client:   client,
+		dataDir:  dataDir,
+		mcpTools: mcpTools,
+	}
 }
 
 // HandleMessage processes a user message for a topic: builds context, calls the LLM,
@@ -134,15 +141,23 @@ func (s *Service) BuildPrompt(topic *topic.Topic, userMessage string) string {
 }
 
 // buildTools creates the list of tools available to the LLM for this topic.
+// Includes built-in file tools plus any configured MCP tools.
 func (s *Service) buildTools(topicID string) []*llm.Tool {
 	topicDir := filepath.Join(s.dataDir, "topics", topicID)
-	return []*llm.Tool{
+	tools := []*llm.Tool{
 		llm.FileReadTool(topicDir),
 		llm.WriteDocumentTool(topicDir, func(content string) {
 			// Update the in-memory store when the LLM writes the document
 			s.store.SetDocument(topicID, content)
 		}),
 	}
+
+	// Add MCP tools if available
+	if len(s.mcpTools) > 0 {
+		tools = append(tools, s.mcpTools...)
+	}
+
+	return tools
 }
 
 // --- Private helpers (extracted from api/routes.go) ---

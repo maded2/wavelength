@@ -8,23 +8,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E3-S9: Interview conversations are fully isolated between topics
 
 func TestTopicIsolation(t *testing.T) {
 	t.Run("the AI agent in Topic A has no access to Topic Bs conversation history", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		// Capture what the LLM receives for each topic
 		var topicBPrompt string
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
 			buf := new(bytes.Buffer)
 			io.Copy(buf, r.Body)
 			body := buf.String()
@@ -34,21 +25,10 @@ func TestTopicIsolation(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		})
+		defer suite.Cleanup(t)
+		app := suite.App
+		store := suite.Store
 
 		// Create Topic A with specific conversation
 		topicAID := "topic-isolation-a"
@@ -77,31 +57,17 @@ func TestTopicIsolation(t *testing.T) {
 	})
 
 	t.Run("starting an interview in Topic A does not surface information from Topic B", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
 		var receivedPrompt string
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
 			buf := new(bytes.Buffer)
 			io.Copy(buf, r.Body)
 			receivedPrompt = buf.String()
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		})
+		defer suite.Cleanup(t)
+		app := suite.App
+		store := suite.Store
 
 		// Create Topic B with sensitive data
 		topicBID := "topic-isolation-b2"
@@ -130,31 +96,17 @@ func TestTopicIsolation(t *testing.T) {
 	})
 
 	t.Run("the agents questions in each topic are based solely on that topics requirement", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
 		var receivedPrompt string
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
 			buf := new(bytes.Buffer)
 			io.Copy(buf, r.Body)
 			receivedPrompt = buf.String()
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		})
+		defer suite.Cleanup(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-isolation-single"
 		store.Create(topicID, "Single Topic", "A medical records system")
@@ -176,27 +128,13 @@ func TestTopicIsolation(t *testing.T) {
 	})
 
 	t.Run("switching from Topic A to Topic B does not affect Topic Bs interview", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		})
+		defer suite.Cleanup(t)
+		app := suite.App
+		store := suite.Store
 
 		// Create Topic A and B
 		topicAID := "topic-switch-a"
@@ -241,27 +179,13 @@ func TestTopicIsolation(t *testing.T) {
 	})
 
 	t.Run("isolation is maintained when both topics are used in close succession", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-
-		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite := newSuiteWithMock(t, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"choices":[{"message":{"content":"Response."}}]}`))
-		}))
-		defer llmServer.Close()
-
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: llmServer.URL,
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		})
+		defer suite.Cleanup(t)
+		app := suite.App
+		store := suite.Store
 
 		topicAID := "topic-rapid-a"
 		topicBID := "topic-rapid-b"

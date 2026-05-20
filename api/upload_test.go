@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"wavelength/internal/llm"
@@ -274,21 +273,18 @@ startxref
 
 	bodyBytes := readBody(t, resp.Body)
 
-	// PDF parsing may succeed or fail depending on library capabilities
-	if resp.StatusCode == http.StatusBadRequest {
-		t.Logf("PDF upload rejected (expected if PDF library cannot parse minimal PDF): %s", bodyBytes)
-		return
+	// The endpoint should either succeed (201) or return a clear 400 error.
+	// It must not panic or return a 5xx.
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 201 or 400, got %d: %s", resp.StatusCode, bodyBytes)
 	}
 
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected status 201, got %d: %s", resp.StatusCode, bodyBytes)
-	}
-
-	var result map[string]interface{}
-	json.Unmarshal(bodyBytes, &result)
-
-	if result["success"] != true {
-		t.Fatalf("expected success=true, got %v", result["success"])
+	if resp.StatusCode == http.StatusCreated {
+		var result map[string]interface{}
+		json.Unmarshal(bodyBytes, &result)
+		if result["success"] != true {
+			t.Fatalf("expected success=true, got %v", result["success"])
+		}
 	}
 }
 
@@ -318,21 +314,18 @@ func TestUploadWithWord(t *testing.T) {
 
 	bodyBytes := readBody(t, resp.Body)
 
-	// DOCX parsing may succeed or fail with minimal ZIP
-	if resp.StatusCode == http.StatusBadRequest {
-		t.Logf("DOCX upload rejected (expected if ZIP parsing fails): %s", bodyBytes)
-		return
+	// The endpoint should either succeed (201) or return a clear 400 error.
+	// It must not panic or return a 5xx.
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 201 or 400, got %d: %s", resp.StatusCode, bodyBytes)
 	}
 
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected status 201, got %d: %s", resp.StatusCode, bodyBytes)
-	}
-
-	var result map[string]interface{}
-	json.Unmarshal(bodyBytes, &result)
-
-	if result["success"] != true {
-		t.Fatalf("expected success=true, got %v", result["success"])
+	if resp.StatusCode == http.StatusCreated {
+		var result map[string]interface{}
+		json.Unmarshal(bodyBytes, &result)
+		if result["success"] != true {
+			t.Fatalf("expected success=true, got %v", result["success"])
+		}
 	}
 }
 
@@ -387,7 +380,7 @@ func setupTestApp(store topic.TopicStore, client *llm.Client, dataDir string) *f
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: true,
 	})
-	SetupRoutes(app, store, client, dataDir)
+	SetupRoutes(app, store, client, dataDir, nil)
 	return app
 }
 
@@ -416,7 +409,5 @@ func createTestTopic(t *testing.T, app *fiber.App, name, desc string) string {
 		t.Fatalf("no id in response: %s", bodyBytes)
 	}
 
-	// Give the store a moment to process
-	time.Sleep(10 * time.Millisecond)
 	return topicID
 }

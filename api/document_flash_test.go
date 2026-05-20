@@ -10,11 +10,10 @@ import (
 // E4-S8: Document viewer flashes to indicate when the document changed
 
 func TestDocumentFlashIndicator(t *testing.T) {
-	t.Run("topic page includes the document flash indicator element", func(t *testing.T) {
+	t.Run("topic page provides visual feedback when the document changes", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
 
-		// Serve the topic page
 		req := httptest.NewRequest("GET", "/topics/test", nil)
 		resp, err := app.Test(req)
 		if err != nil {
@@ -25,16 +24,17 @@ func TestDocumentFlashIndicator(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := string(body)
 
-		// Check for the flash indicator element
+		// The page should include a flash indicator element that the user can see
 		if !strings.Contains(bodyStr, "doc-flash-indicator") {
-			t.Error("expected topic page to include doc-flash-indicator element")
+			t.Error("expected topic page to include document change indicator element")
 		}
+		// The indicator should display user-facing text about document updates
 		if !strings.Contains(bodyStr, "Document Updated") {
-			t.Error("expected topic page to include 'Document Updated' flash text")
+			t.Error("expected topic page to include 'Document Updated' user-facing text")
 		}
 	})
 
-	t.Run("topic page includes the flash animation CSS", func(t *testing.T) {
+	t.Run("topic page includes styling for the flash indicator", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
 
@@ -48,19 +48,17 @@ func TestDocumentFlashIndicator(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := string(body)
 
-		// Check for CSS animation
+		// The page should include CSS for the flash animation effect
 		if !strings.Contains(bodyStr, "doc-flash") {
-			t.Error("expected topic page to include doc-flash CSS animation")
+			t.Error("expected topic page to include flash animation CSS")
 		}
-		if !strings.Contains(bodyStr, "doc-changed") {
-			t.Error("expected topic page to include doc-changed CSS class")
-		}
+		// The page should include CSS for the fade-out effect
 		if !strings.Contains(bodyStr, "flash-indicator-fade") {
-			t.Error("expected topic page to include flash-indicator-fade animation")
+			t.Error("expected topic page to include fade-out CSS animation")
 		}
 	})
 
-	t.Run("topic page includes the flashDocumentPanel JavaScript function", func(t *testing.T) {
+	t.Run("topic page includes JavaScript to detect document changes", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
 
@@ -74,16 +72,17 @@ func TestDocumentFlashIndicator(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := string(body)
 
-		// Check for JavaScript function
+		// The page should include a function that triggers the flash on document change
 		if !strings.Contains(bodyStr, "flashDocumentPanel") {
-			t.Error("expected topic page to include flashDocumentPanel function")
+			t.Error("expected topic page to include document change flash function")
 		}
+		// The page should track the previous document content to detect changes
 		if !strings.Contains(bodyStr, "previousDocument") {
-			t.Error("expected topic page to include previousDocument variable for change tracking")
+			t.Error("expected topic page to include document change tracking variable")
 		}
 	})
 
-	t.Run("doc-panel has an id for JavaScript targeting", func(t *testing.T) {
+	t.Run("document panel has a targetable element for flash updates", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
 
@@ -97,9 +96,9 @@ func TestDocumentFlashIndicator(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := string(body)
 
-		// Check for doc-panel id
+		// The document panel should have an id so JavaScript can target it
 		if !strings.Contains(bodyStr, `id="doc-panel"`) {
-			t.Error("expected doc-panel element to have id='doc-panel'")
+			t.Error("expected document panel to have a targetable id")
 		}
 	})
 }

@@ -139,12 +139,15 @@ startxref
 	c := New()
 	result, err := c.Convert(strings.NewReader(pdfContent), "test.pdf")
 	if err != nil {
-		t.Logf("PDF conversion note: %v (may depend on PDF library capabilities)", err)
-		// PDF parsing may fail with minimal PDFs; this is acceptable
+		// PDF parsing may fail with minimal PDFs depending on library capabilities.
+		// The important thing is that it returns a clear error rather than panicking.
+		if !strings.Contains(strings.ToLower(err.Error()), "pdf") {
+			t.Errorf("expected PDF-related error, got: %v", err)
+		}
 		return
 	}
 	if !strings.Contains(result, "Hello World") {
-		t.Logf("PDF result: %q", result)
+		t.Errorf("expected PDF text extraction to contain 'Hello World', got: %q", result)
 	}
 }
 

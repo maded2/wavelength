@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
 
 // E3-S6: User views the full conversation history for a topic
@@ -144,7 +143,6 @@ func TestConversationHistory(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			resp, _ := app.Test(req)
 			resp.Body.Close()
-			time.Sleep(1 * time.Millisecond) // Ensure distinct timestamps
 		}
 
 		// Get topic detail

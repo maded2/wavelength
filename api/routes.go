@@ -18,11 +18,12 @@ import (
 	"wavelength/internal/convert"
 	"wavelength/internal/export"
 	"wavelength/internal/llm"
+	"wavelength/internal/mcp"
 	topicpkg "wavelength/internal/topic"
 )
 
 // SetupRoutes registers all API routes on the given Fiber app.
-func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, dataDir string) {
+func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, dataDir string, mcpMgr *mcp.Manager) {
 	// Static landing page
 	app.Get("/", LandingPage)
 
@@ -399,6 +400,11 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, 
 			}),
 		}
 
+		// Add MCP tools if available
+		if mcpMgr != nil {
+			tools = append(tools, mcp.ToLLMTools(mcpMgr)...)
+		}
+
 		assistantResponse, err := client.CallWithTools(c.Context(), llmMessages, tools)
 		if err != nil {
 			// LLM failed — return user-friendly error but user message is preserved
@@ -619,6 +625,11 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, 
 						documentUpdated = true
 						log.Printf("[DOC-TOOL] Follow-up tool wrote document for topic %q (%d bytes)", topicID, len(content))
 					}),
+				}
+
+				// Add MCP tools if available
+				if mcpMgr != nil {
+					followUpTools = append(followUpTools, mcp.ToLLMTools(mcpMgr)...)
 				}
 				followUpMsg := fmt.Sprintf(
 					"You just produced the following response in a requirements gathering session. "+

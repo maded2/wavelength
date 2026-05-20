@@ -14,5 +14,8 @@
   "persona": {
     "system_prompt": ""
   },
+  "mcp": {
+    "servers": []
+  },
   "data_dir": "./data"
 }   

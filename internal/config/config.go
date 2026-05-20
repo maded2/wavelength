@@ -13,6 +13,7 @@ type Config struct {
 	Server  ServerConfig  `json:"server"`
 	LLM     LLMConfig     `json:"llm"`
 	Persona PersonaConfig `json:"persona"`
+	MCP     MCPConfig     `json:"mcp"`
 	DataDir string        `json:"data_dir"`
 }
 
@@ -132,6 +133,34 @@ func (c *Config) GetPersonaPrompt() string {
 		return c.Persona.SystemPrompt
 	}
 	return DefaultPersonaPrompt
+}
+
+// MCPServerConfig holds configuration for a single external MCP server.
+type MCPServerConfig struct {
+	// Name is a display name for the server (e.g., "filesystem", "web-search").
+	Name string `json:"name"`
+	// Transport is the connection type: "stdio" or "sse".
+	Transport string `json:"transport"`
+	// Command is the executable to run for stdio transport (e.g., "npx", "uv").
+	Command string `json:"command,omitempty"`
+	// Args are command-line arguments for stdio transport (e.g., ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]).
+	Args []string `json:"args,omitempty"`
+	// Env are environment variables to set for the stdio subprocess.
+	Env map[string]string `json:"env,omitempty"`
+	// URL is the SSE endpoint URL for SSE transport (e.g., "http://localhost:3001/sse").
+	URL string `json:"url,omitempty"`
+	// Timeout is the connection timeout in seconds (default 10).
+	Timeout int `json:"timeout,omitempty"`
+}
+
+// MCPConfig holds MCP server configurations.
+type MCPConfig struct {
+	Servers []MCPServerConfig `json:"servers"`
+}
+
+// HasMCP returns true if any MCP servers are configured.
+func (c *Config) HasMCP() bool {
+	return len(c.MCP.Servers) > 0
 }
 
 var (

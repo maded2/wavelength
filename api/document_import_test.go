@@ -15,7 +15,6 @@ func TestPreExistingDocument(t *testing.T) {
 	t.Run("user can provide a pre-existing document when creating a topic", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		
 
 		payload := map[string]string{
 			"name":        "Imported Project",
@@ -53,7 +52,6 @@ func TestPreExistingDocument(t *testing.T) {
 	t.Run("the provided document becomes the starting point for the topics requirement document", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		
 
 		payload := map[string]string{
 			"name":        "Seed Doc",
@@ -93,7 +91,6 @@ func TestPreExistingDocument(t *testing.T) {
 	t.Run("providing a pre-existing document is optional", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		
 
 		// Create topic without document field
 		payload := map[string]string{
@@ -131,7 +128,6 @@ func TestPreExistingDocument(t *testing.T) {
 	t.Run("non-markdown content is accepted as plain text", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		
 
 		// Plain text without markdown formatting
 		payload := map[string]string{
@@ -166,7 +162,6 @@ func TestPreExistingDocument(t *testing.T) {
 	t.Run("the pre-existing document is preserved and not discarded", func(t *testing.T) {
 		suite := newSuite(t)
 		app := suite.App
-		
 
 		payload := map[string]string{
 			"name":        "Preserve Doc",

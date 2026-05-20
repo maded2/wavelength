@@ -6,31 +6,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/gofiber/fiber/v2"
-	"wavelength/internal/config"
-	"wavelength/internal/llm"
-	"wavelength/internal/topic"
 )
 
 // E2-S7: User reopens a completed topic
 
 func TestReopenTopic(t *testing.T) {
 	t.Run("a completed topic can be reopened by the user", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-reopen-001"
 		store.Create(topicID, "Reopen Me", "A topic to reopen")
@@ -73,20 +57,9 @@ func TestReopenTopic(t *testing.T) {
 	})
 
 	t.Run("upon reopening the topic status returns to active", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-reopen-002"
 		store.Create(topicID, "Status Check", "Testing status transition")
@@ -126,20 +99,9 @@ func TestReopenTopic(t *testing.T) {
 	})
 
 	t.Run("the full conversation history and requirement document from before completion are preserved", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-reopen-003"
 		topic := store.Create(topicID, "Preserve Data", "Testing data preservation")
@@ -193,20 +155,9 @@ func TestReopenTopic(t *testing.T) {
 	})
 
 	t.Run("reopening does not create a new topic — it continues the existing one", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-reopen-004"
 		store.Create(topicID, "Same Topic", "No new topic created")
@@ -251,20 +202,9 @@ func TestReopenTopic(t *testing.T) {
 	})
 
 	t.Run("after reopening the user can add new messages to the topic", func(t *testing.T) {
-		app := fiber.New()
-		store := topic.NewStore()
-		cfg := &config.Config{
-			Server: config.ServerConfig{Port: 3000},
-			LLM: config.LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-4",
-				Endpoint: "http://localhost:11434",
-				APIKey:   "test-key",
-			},
-			DataDir: t.TempDir(),
-		}
-		client := llm.NewClient(cfg)
-		SetupRoutes(app, store, client, cfg.DataDir)
+		suite := newSuite(t)
+		app := suite.App
+		store := suite.Store
 
 		topicID := "topic-reopen-005"
 		store.Create(topicID, "Message After Reopen", "Testing messages after reopen")
