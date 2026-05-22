@@ -11,7 +11,8 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 - **AI-powered interviews** — An LLM agent acts as a business analyst, asking targeted questions to uncover requirements, edge cases, and constraints
 - **LLM tool calling** — The agent uses `read_file` and `write_document` tools to read reference documents and persist requirement documents directly, with delimiter-based extraction as a fallback
 - **Streaming responses** — Real-time token streaming via Server-Sent Events (SSE) for instant feedback as the AI responds
-- **Document upload** — Upload reference documents (Markdown, PDF, Word/DOCX) from the chat window; they are converted to Markdown and included in the AI agent's context
+- **Document upload** — Upload reference documents (Markdown, PDF, Word/DOCX) from the chat window; they are converted to Markdown, saved to disk, and included in the AI agent's context
+- **Attachment management** — View and delete attachments from the document panel; deletion removes both the original file and all references with confirmation
 - **Topic management** — Multiple independent requirement-gathering initiatives, each with isolated conversation history and a living requirement document
 - **Living documents** — Markdown requirement documents that evolve as the interview progresses, with automatic extraction from AI responses
 - **Document export** — Download requirement documents as Markdown, PDF, or Word (DOCX)
@@ -125,6 +126,7 @@ You can also specify a custom config file:
 | `POST` | `/api/topics/:id/messages/stream` | Send message (SSE streaming) |
 | `POST` | `/api/topics/:id/upload` | Upload reference document (Markdown, PDF, DOCX) |
 | `GET` | `/api/topics/:id/attachments` | List topic attachments |
+| `DELETE` | `/api/topics/:id/attachments/:attachmentId` | Delete an attachment (removes file + metadata) |
 | `GET` | `/api/topics/:id/document/download` | Download document (`?format=markdown\|pdf\|word`) |
 
 ### Create a Topic
@@ -182,7 +184,19 @@ file=<your-file>
 
 Supported formats: `.md`, `.pdf`, `.docx` (max 10 MB per file).
 
-Uploaded documents are converted to Markdown and stored as attachments. The AI agent references them during the interview conversation.
+Uploaded documents are converted to Markdown and stored as attachments. The original file is saved to disk alongside the converted metadata. The AI agent references them during the interview conversation.
+
+### Deleting Attachments
+
+Attachments can be deleted from the document panel (left side of the topic view). Clicking the delete icon (🗑️) on an attachment prompts for confirmation, then removes both the original file and its metadata.
+
+```
+DELETE /api/topics/:id/attachments/:attachmentId
+```
+
+Response: `200 OK` with `{"message": "attachment deleted"}`.
+
+If the attachment ID is not found, returns `404 Not Found` with `{"message": "attachment not found"}`.
 
 ## Special Commands
 
@@ -453,6 +467,7 @@ data/topics/<topic-id>/
   messages.jsonl      — Conversation messages (one JSON per line)
   document.md         — Living requirement document
   attachments.json    — Uploaded reference document metadata and converted markdown
+  attachments/        — Original uploaded files (one per attachment, named `att-<id>.<ext>`)
 ```
 
 All writes use **atomic write-to-temp-then-rename** to prevent corruption on crash. File locking (`gofrs/flock`) ensures safe concurrent access. A global lock protects bulk load/save operations; per-operation writes use in-memory mutexes.

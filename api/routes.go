@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -264,9 +265,17 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, 
 			}
 			defer src.Close()
 
+			// Read file data (needed for both conversion and saving)
+			fileData, err := io.ReadAll(src)
+			if err != nil {
+				return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+					"message": "failed to read uploaded file: " + err.Error(),
+				})
+			}
+
 			// Convert to markdown
 			conv := convert.New()
-			markdown, err := conv.Convert(src, file.Filename)
+			markdown, err := conv.Convert(bytes.NewReader(fileData), file.Filename)
 			if err != nil {
 				return c.Status(http.StatusBadRequest).JSON(fiber.Map{
 					"message": "failed to convert document: " + err.Error(),
@@ -276,13 +285,29 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, 
 			// Determine format
 			format, _ := convert.DetectFormat(file.Filename)
 
+			// Save original file to disk
+			attID := fmt.Sprintf("att-%s", uuid.New().String()[:8])
+			attachmentsDir := filepath.Join(dataDir, "topics", topicID, "attachments")
+			if err := os.MkdirAll(attachmentsDir, 0755); err != nil {
+				return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+					"message": "failed to create attachments directory: " + err.Error(),
+				})
+			}
+			filePath := filepath.Join(attachmentsDir, attID+"."+filepath.Ext(file.Filename))
+			if err := os.WriteFile(filePath, fileData, 0644); err != nil {
+				return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+					"message": "failed to save uploaded file: " + err.Error(),
+				})
+			}
+
 			// Create attachment record
 			attachment := topicpkg.Attachment{
-				ID:              fmt.Sprintf("att-%s", uuid.New().String()[:8]),
+				ID:              attID,
 				Filename:        file.Filename,
 				Format:          string(format),
 				Size:            file.Size,
 				UploadedAt:      time.Now(),
+				FilePath:        filepath.Join("attachments", attID+"."+filepath.Ext(file.Filename)),
 				MarkdownContent: markdown,
 			}
 
@@ -332,7 +357,30 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, 
 				})
 			}
 			return c.JSON(result)
+	})
+
+	// Delete an attachment from a topic
+	app.Delete("/api/topics/:id/attachments/:attachmentId", func(c *fiber.Ctx) error {
+		topicID := c.Params("id")
+		attachmentID := c.Params("attachmentId")
+
+		topic := store.Get(topicID)
+		if topic == nil {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{
+				"message": "topic not found",
+			})
+		}
+
+		if !store.DeleteAttachment(topicID, attachmentID) {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{
+				"message": "attachment not found",
+			})
+		}
+
+		return c.Status(http.StatusOK).JSON(fiber.Map{
+			"message": "attachment deleted",
 		})
+	})
 
 	// Submit message to topic conversation (non-streaming, legacy)
 		app.Post("/api/topics/:id/messages", func(c *fiber.Ctx) error {

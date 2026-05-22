@@ -14,6 +14,8 @@ type Attachment struct {
 	Format     string    `json:"format"` // "markdown", "pdf", "word"
 	Size       int64     `json:"size"`
 	UploadedAt time.Time `json:"uploaded_at"`
+	// FilePath is the relative path within the topic directory where the original file is stored.
+	FilePath string `json:"file_path,omitempty"`
 	// MarkdownContent holds the converted markdown text (for LLM context)
 	MarkdownContent string `json:"markdown_content,omitempty"`
 }
@@ -52,6 +54,7 @@ type TopicStore interface {
 	Delete(id string) bool
 	AddAttachment(topicID string, attachment Attachment) bool
 	ListAttachments(topicID string) []Attachment
+	DeleteAttachment(topicID, attachmentID string) bool
 }
 
 // blankDocument returns the initial markdown template for a new requirement document.
@@ -212,6 +215,26 @@ func (s *Store) ListAttachments(topicID string) []Attachment {
 		return []Attachment{}
 	}
 	return topic.Attachments
+}
+
+// DeleteAttachment removes an attachment from a topic by attachment ID.
+func (s *Store) DeleteAttachment(topicID, attachmentID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[topicID]
+	if !ok {
+		return false
+	}
+
+	for i, att := range topic.Attachments {
+		if att.ID == attachmentID {
+			topic.Attachments = append(topic.Attachments[:i], topic.Attachments[i+1:]...)
+			topic.UpdatedAt = time.Now()
+			return true
+		}
+	}
+	return false
 }
 
 // List returns all topics, sorted by most recently updated first.

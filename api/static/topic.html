@@ -335,6 +335,87 @@
         }
         .doc-empty p { margin-top: 8px; font-size: 13px; }
 
+        /* ── Attachments in Document Panel ── */
+        .doc-attachments {
+            border-top: 1px solid var(--border);
+            padding: 10px 16px;
+            flex-shrink: 0;
+            background: var(--bg-surface);
+            max-height: 200px;
+            overflow-y: auto;
+            transition: background 0.3s, border-color 0.3s;
+        }
+        .doc-attachments-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .doc-attachments-header::before {
+            content: '📎';
+            font-size: 12px;
+        }
+        .doc-attachments-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .doc-attachment-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--accent-muted);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--text);
+            transition: background 0.2s;
+        }
+        .doc-attachment-chip:hover {
+            background: var(--btn-sec-hover);
+        }
+        .doc-attachment-chip .filename {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
+        }
+        .doc-attachment-chip .format-badge {
+            background: var(--accent);
+            color: #fff;
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-size: 9px;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+        .doc-attachment-chip .file-size {
+            color: var(--text-muted);
+            font-size: 10px;
+            flex-shrink: 0;
+        }
+        .doc-attachment-chip .delete-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 2px 4px;
+            border-radius: 4px;
+            flex-shrink: 0;
+            opacity: 0.5;
+            transition: opacity 0.2s, background 0.2s;
+        }
+        .doc-attachment-chip .delete-btn:hover {
+            opacity: 1;
+            background: rgba(220, 38, 38, 0.1);
+        }
+
         /* ── Chat Panel (Right) ── */
         .chat-panel {
             flex: 1;
@@ -507,41 +588,6 @@
         .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         #file-input { display: none; }
 
-        /* ── Attachment List ── */
-        .attachment-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            padding: 0 20px 8px;
-            background: var(--bg-surface);
-        }
-        .attachment-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 3px 8px;
-            background: var(--accent-muted);
-            border-radius: 12px;
-            font-size: 11px;
-            color: var(--accent);
-            max-width: 200px;
-            overflow: hidden;
-        }
-        .attachment-chip .filename {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .attachment-chip .format-badge {
-            background: var(--accent);
-            color: #fff;
-            padding: 0 4px;
-            border-radius: 4px;
-            font-size: 9px;
-            text-transform: uppercase;
-            flex-shrink: 0;
-        }
-
         /* ── Upload Status Message ── */
         .upload-status {
             padding: 8px 20px;
@@ -602,6 +648,10 @@
             <div class="doc-content" id="doc-content">
                 <div class="doc-empty">Loading...</div>
             </div>
+            <div class="doc-attachments" id="doc-attachments" style="display:none;">
+                <div class="doc-attachments-header">Attachments</div>
+                <div class="doc-attachments-list" id="doc-attachments-list"></div>
+            </div>
         </div>
 
         <div class="splitter" id="splitter"></div>
@@ -611,7 +661,6 @@
                 <div class="empty-chat">Loading topic...</div>
             </div>
 
-            <div class="attachment-list" id="attachment-list"></div>
             <div class="upload-status" id="upload-status"></div>
 
             <div class="input-area">
@@ -728,17 +777,54 @@
         }
 
         function renderAttachments() {
-            const list = document.getElementById('attachment-list');
+            const container = document.getElementById('doc-attachments');
+            const list = document.getElementById('doc-attachments-list');
             if (attachments.length === 0) {
+                container.style.display = 'none';
                 list.innerHTML = '';
                 return;
             }
+            container.style.display = 'block';
             list.innerHTML = attachments.map(att => `
-                <div class="attachment-chip" title="${escapeHtml(att.filename)}">
+                <div class="doc-attachment-chip" title="${escapeHtml(att.filename)}">
                     <span class="filename">${escapeHtml(att.filename)}</span>
                     <span class="format-badge">${att.format}</span>
+                    <span class="file-size">${formatFileSize(att.size)}</span>
+                    <button class="delete-btn" onclick="deleteAttachment('${att.id}', '${escapeHtml(att.filename)}')" title="Delete attachment">🗑️</button>
                 </div>
             `).join('');
+        }
+
+        async function deleteAttachment(id, filename) {
+            if (!confirm(`Delete attachment "${filename}"?\n\nThis will remove the file and all references to it. This cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/topics/' + topicId + '/attachments/' + id, {
+                    method: 'DELETE'
+                });
+
+                const data = await res.json().catch(() => ({}));
+
+                if (!res.ok) {
+                    alert(data.message || 'Failed to delete attachment');
+                    return;
+                }
+
+                // Remove from local list
+                attachments = attachments.filter(a => a.id !== id);
+                renderAttachments();
+            } catch (e) {
+                alert('Failed to delete attachment: ' + e.message);
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes == null || bytes === 0) return '';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
         }
 
         function showUploadStatus(message, isError) {

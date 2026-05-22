@@ -662,14 +662,49 @@ func (s *FileStore) ListAttachments(topicID string) []Attachment {
 	return result
 }
 
+// DeleteAttachment removes an attachment from a topic by attachment ID.
+// It also deletes the original file from disk if one was saved.
+func (s *FileStore) DeleteAttachment(topicID, attachmentID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	topic, ok := s.topics[topicID]
+	if !ok {
+		return false
+	}
+
+	for i, att := range topic.Attachments {
+		if att.ID == attachmentID {
+			// Delete the original file from disk
+			if att.FilePath != "" {
+				fullPath := filepath.Join(s.topicPath(topicID), att.FilePath)
+				_ = os.Remove(fullPath)
+			}
+
+			topic.Attachments = append(topic.Attachments[:i], topic.Attachments[i+1:]...)
+			topic.UpdatedAt = time.Now()
+
+			// Persist updated attachments to disk
+			_ = s.persistAttachments(topicID, topic.Attachments)
+			return true
+		}
+	}
+	return false
+}
+
 // attachmentsFile returns the path to the attachments JSON file.
 func (s *FileStore) attachmentsFile(id string) string {
 	return filepath.Join(s.topicPath(id), "attachments.json")
 }
 
 // persistAttachments writes attachments to disk.
+// If there are no attachments left, it removes the attachments.json file
+// and the attachments subdirectory if empty.
 func (s *FileStore) persistAttachments(id string, attachments []Attachment) error {
 	if len(attachments) == 0 {
+		_ = os.Remove(s.attachmentsFile(id))
+		attachmentsDir := filepath.Join(s.topicPath(id), "attachments")
+		_ = os.Remove(attachmentsDir)
 		return nil
 	}
 	data, err := json.MarshalIndent(attachments, "", "  ")
