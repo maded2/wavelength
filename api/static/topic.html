@@ -1005,12 +1005,12 @@
                 area.innerHTML = '<div class="empty-chat"><h3>No messages yet</h3><p>Start the conversation by sending a message below.</p></div>';
                 return;
             }
-            area.innerHTML = messages.map(m => `
-                <div class="message ${m.role}">
-                    ${m.role === 'assistant' ? renderMarkdown(m.content) : escapeHtml(m.content)}
-                    <div class="meta">${m.role} · ${formatTime(m.timestamp)}</div>
-                </div>
-            `).join('');
+            area.innerHTML = messages.map(m => {
+                var content = m.role === 'assistant'
+                    ? renderMarkdown(m.content)
+                    : escapeHtml((m.content || '').trim());
+                return '<div class="message ' + m.role + '">' + content + '<div class="meta">' + m.role + ' · ' + formatTime(m.timestamp) + '</div></div>';
+            }).join('');
             area.scrollTop = area.scrollHeight;
         }
 
