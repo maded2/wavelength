@@ -16,7 +16,7 @@ The goal is to create a web application where an AI agent, powered by a configur
 
 ### 1.2 Context: A Meta-Project
 
-This application is itself a software project whose requirements are being defined. The `requirement.md` file in the repository represents both the specification for the application AND the first example of the type of document the application will produce and maintain. The `prompt.txt` file captures the intended behavior and persona of the AI agent that will power the interview process.
+This application is itself a software project whose requirements are being defined. The `requirement.md` file in the repository represents both the specification for the application AND the first example of the type of document the application will produce and maintain.
 
 ---
 
@@ -134,7 +134,7 @@ This application is itself a software project whose requirements are being defin
 
 ### 5.5 Maintainability & Extensibility
 
-- **NFR-11**: The AI agent's behavior (its interview style, questioning strategy) should be modifiable through prompt configuration (as exemplified by `prompt.txt`), not hardcoded logic.
+- **NFR-11**: The AI agent's behavior (its interview style, questioning strategy) should be modifiable through prompt configuration, not hardcoded logic.
 - **NFR-12**: The LLM backend shall be swappable via configuration to support different models/providers.
 
 ---

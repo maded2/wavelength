@@ -24,7 +24,6 @@ These constraints come from `docs/problem-analysis.md` section 7. They are manda
 1. **`docs/problem-analysis.md`** — Authoritative spec. Contains functional requirements (FR-01..FR-21), non-functional requirements, business rules, constraints, domain model, and risk analysis.
 2. **`docs/epics-and-stories.md`** — 4 epics, 31 user stories with acceptance criteria. Stories follow ATDD Red-Green-Refactor cycle. Implementation order is E1 → E2 → E3 → E4.
 3. **`docs/requirement.md`** — Original brief requirement statement (12 lines). Reference only.
-4. **`prompt.txt`** — AI agent persona prompt template. Will be loaded from config at runtime.
 
 ## Development Methodology
 
