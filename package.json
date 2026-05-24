@@ -42,6 +42,7 @@
     "build:windows-arm64": "node ./scripts/build.mjs windows/arm64",
     "run": "node ./scripts/run.mjs",
     "test": "go test ./...",
+    "install-config": "node ./scripts/install-config.mjs",
     "release": "node ./scripts/release.mjs",
     "clean": "node ./scripts/clean.mjs"
   },

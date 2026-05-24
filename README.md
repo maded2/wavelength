@@ -59,11 +59,27 @@ This downloads the correct binary for your OS and CPU — no Go installation req
 | Windows | x86_64 (amd64) | `wavelength-windows-amd64.exe` |
 | Windows | ARM 64-bit (arm64) | `wavelength-windows-arm64.exe` |
 
-After install, run:
+After install, set up the config file:
 
 ```bash
-./wavelength -config configs/config.json
+npm run install-config
 ```
+
+This copies the default config to the standard location for your platform:
+
+| Platform | Config Path |
+|---|---|
+| Linux | `~/.config/wavelength/config.json` |
+| macOS | `~/.config/wavelength/config.json` |
+| Windows | `%APPDATA%/wavelength/config.json` |
+
+Edit the config with your LLM endpoint, model, and API key, then start:
+
+```bash
+./wavelength -config ~/.config/wavelength/config.json
+```
+
+> **Note:** If the config file already exists at the destination, it is preserved (not overwritten).
 
 ### Build from Source
 
@@ -99,17 +115,26 @@ This builds the binary and starts the server with `configs/config.json`. The app
 You can also specify a custom config file:
 
 ```bash
-./wavelength -config config.json
+./wavelength -config ~/.config/wavelength/config.json
 ```
 
 ### Configuration
 
-Copy the example config and adjust for your LLM backend:
+Install the default config to the standard location:
 
 ```bash
-cp configs/config.json config.json
-# Edit config.json with your LLM endpoint, model, and API key
+npm run install-config
 ```
+
+Then edit the config with your LLM endpoint, model, and API key. The config is placed at:
+
+| Platform | Path |
+|---|---|
+| Linux | `~/.config/wavelength/config.json` |
+| macOS | `~/.config/wavelength/config.json` |
+| Windows | `%APPDATA%/wavelength/config.json` |
+
+> **Note:** If the config file already exists, it is preserved (not overwritten).
 
 Example configuration:
 
