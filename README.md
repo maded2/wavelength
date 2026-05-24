@@ -36,12 +36,71 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 | MCP client | [modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk) — stdio and SSE transports |
 | Configuration | Single JSON file |
 
-## Quick Start
+## Installation
 
-### Prerequisites
+### Quick Start — Pre-built Binary (Recommended)
 
-- Go 1.25+
-- An LLM API with OpenAI-compatible chat completions endpoint
+Install the pre-built binary for your platform directly from GitHub Releases:
+
+```bash
+npm install github:maded2/wavelength
+```
+
+This downloads the correct binary for your OS and CPU — no Go installation required. The binary is placed in the project root as `wavelength` (or `wavelength.exe` on Windows).
+
+**Supported platforms:**
+
+| OS | CPU | Binary |
+|---|---|---|
+| Linux | x86_64 (amd64) | `wavelength-linux-amd64` |
+| Linux | ARM 64-bit (arm64) | `wavelength-linux-arm64` |
+| macOS | Apple Silicon (arm64) | `wavelength-darwin-arm64` |
+| macOS | Intel (amd64) | `wavelength-darwin-amd64` |
+| Windows | x86_64 (amd64) | `wavelength-windows-amd64.exe` |
+| Windows | ARM 64-bit (arm64) | `wavelength-windows-arm64.exe` |
+
+After install, run:
+
+```bash
+./wavelength -config configs/config.json
+```
+
+### Build from Source
+
+If you prefer to build locally (or your platform is unsupported), you need **Go 1.25+**:
+
+```bash
+# Build for your current platform
+make build
+
+# Build for all platforms (outputs to dist/)
+make build-all
+
+# Build for a specific platform
+make build-linux-arm64
+```
+
+Or via npm:
+
+```bash
+npm run build              # current platform
+npm run build:all          # all platforms → dist/
+npm run build:darwin-arm64 # macOS Apple Silicon
+```
+
+### Running
+
+```bash
+make run
+```
+
+This builds the binary and starts the server with `configs/config.json`. The application starts on the configured port (default: 3000). Open `http://localhost:3000` in your browser.
+
+You can also specify a custom config file:
+
+```bash
+./wavelength -config config.json
+```
 
 ### Configuration
 
@@ -87,27 +146,21 @@ Example configuration:
 
 **Required fields**: `server.port`, `llm.provider`, `llm.model`, `llm.endpoint`, `llm.api_key`, `data_dir`. Missing fields cause a startup error with a descriptive message.
 
-### Running
+### Release Process (Developers)
+
+To publish a new release with pre-built binaries for all platforms:
 
 ```bash
-make run
+GITHUB_TOKEN=ghp_xxx npm run release
 ```
 
-This builds the binary and starts the server with `configs/config.json`. The application starts on the configured port (default: 3000). Open `http://localhost:3000` in your browser.
+This requires a [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope. The script:
+1. Cross-compiles Go binaries for all 6 supported platforms
+2. Creates compressed archives (`.tar.gz` for Unix, `.zip` for Windows)
+3. Creates a GitHub Release tagged with the version from `package.json`
+4. Uploads all archives as release assets
 
-### Building
-
-```bash
-make build    # compiles to ./wl
-make run      # builds then runs
-make clean    # removes ./wl
-```
-
-You can also specify a custom config file:
-
-```bash
-./wl -config config.json
-```
+Users can then install via `npm install github:maded2/wavelength` and get the pre-built binary automatically.
 
 ## API Endpoints
 

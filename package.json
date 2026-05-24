@@ -1,0 +1,58 @@
+{
+  "name": "wavelength",
+  "version": "0.1.0",
+  "description": "AI-driven requirement document generator",
+  "type": "module",
+  "main": "./scripts/build.mjs",
+  "bin": {
+    "wavelength": "./scripts/run.mjs"
+  },
+  "files": [
+    "scripts/",
+    "cmd/",
+    "internal/",
+    "api/",
+    "static/",
+    "configs/",
+    "go.mod",
+    "go.sum"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "scripts": {
+    "preinstall": "node ./scripts/preinstall.mjs",
+    "postinstall": "node ./scripts/postinstall.mjs",
+    "build": "node ./scripts/build.mjs",
+    "build:all": "node ./scripts/build.mjs --all",
+    "build:linux-amd64": "node ./scripts/build.mjs linux/amd64",
+    "build:linux-arm64": "node ./scripts/build.mjs linux/arm64",
+    "build:darwin-amd64": "node ./scripts/build.mjs darwin/amd64",
+    "build:darwin-arm64": "node ./scripts/build.mjs darwin/arm64",
+    "build:windows-amd64": "node ./scripts/build.mjs windows/amd64",
+    "build:windows-arm64": "node ./scripts/build.mjs windows/arm64",
+    "run": "node ./scripts/run.mjs",
+    "test": "go test ./...",
+    "release": "node ./scripts/release.mjs",
+    "clean": "node ./scripts/clean.mjs"
+  },
+  "keywords": [],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maded2/wavelength.git"
+  },
+  "bugs": {
+    "url": "https://github.com/maded2/wavelength/issues"
+  },
+  "homepage": "https://github.com/maded2/wavelength#readme",
+  "license": "MIT"
+}

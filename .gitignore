@@ -1,6 +1,7 @@
 # Built binaries
 wl
 wavelength
+dist/
 
 # Data directory (file-based persistence)
 data/
@@ -14,6 +15,9 @@ data/
 Thumbs.db
 
 deepseek.json
+
+# Node
+node_modules/
 
 # IDE
 .idea/
