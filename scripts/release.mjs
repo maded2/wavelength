@@ -15,7 +15,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { mkdirSync, rmSync, existsSync, statSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, statSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
@@ -92,7 +92,7 @@ async function uploadAsset(releaseId, filePath, fileName) {
   const contentType = ext === "zip" ? "application/zip" : "application/gzip";
   const url = `https://uploads.github.com/repos/${OWNER}/${REPO_NAME}/releases/${releaseId}/assets?name=${fileName}`;
 
-  const buffer = execSync(`cat "${filePath}"`);
+  const buffer = readFileSync(filePath);
 
   const response = await fetch(url, {
     method: "POST",
@@ -150,7 +150,8 @@ function createArchive(platform, binaryPath) {
         stdio: "pipe",
       });
     } else {
-      execSync(`zip -r "${archivePath}" "${dirName}" -C "${OUT_DIR}"`, { stdio: "pipe" });
+      // zip doesn't support -C like tar; cd into the directory instead
+      execSync(`cd "${OUT_DIR}" && zip -r "${archivePath}" "${dirName}"`, { stdio: "pipe" });
     }
   }
 
@@ -197,7 +198,7 @@ async function run() {
     console.log(`  ✓ Release created: ${release.html_url}`);
   } catch (err) {
     // Check if release already exists
-    if (err.message.includes("already exists")) {
+    if (err.message.includes("already_exists") || err.message.includes("already exists")) {
       console.log(`  ⚠ Release ${tag} already exists. Uploading assets to existing release.`);
       const existing = await fetch(
         `https://api.github.com/repos/${OWNER}/${REPO_NAME}/releases/tags/${tag}`,
