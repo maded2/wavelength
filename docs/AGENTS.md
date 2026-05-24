@@ -17,13 +17,13 @@ Wavelength is an AI-driven web application that helps users transform vague busi
 | **Deployment** | Standalone binary — no external databases, no message queues, no microservices |
 | **Persistence** | File-based (topics, conversations, documents stored on disk) |
 
-These constraints come from `problem-analysis.md` section 7. They are mandatory, not suggestions.
+These constraints come from `docs/problem-analysis.md` section 7. They are mandatory, not suggestions.
 
 ## Spec Documents (Read In Order)
 
-1. **`problem-analysis.md`** — Authoritative spec. Contains functional requirements (FR-01..FR-21), non-functional requirements, business rules, constraints, domain model, and risk analysis.
-2. **`epics-and-stories.md`** — 4 epics, 31 user stories with acceptance criteria. Stories follow ATDD Red-Green-Refactor cycle. Implementation order is E1 → E2 → E3 → E4.
-3. **`requirement.md`** — Original brief requirement statement (12 lines). Reference only.
+1. **`docs/problem-analysis.md`** — Authoritative spec. Contains functional requirements (FR-01..FR-21), non-functional requirements, business rules, constraints, domain model, and risk analysis.
+2. **`docs/epics-and-stories.md`** — 4 epics, 31 user stories with acceptance criteria. Stories follow ATDD Red-Green-Refactor cycle. Implementation order is E1 → E2 → E3 → E4.
+3. **`docs/requirement.md`** — Original brief requirement statement (12 lines). Reference only.
 4. **`prompt.txt`** — AI agent persona prompt template. Will be loaded from config at runtime.
 
 ## Development Methodology
@@ -102,5 +102,5 @@ This schema is subject to change as Epic 1 stories are implemented.
 
 1. Run `go mod init wavelength` if the module doesn't exist yet
 2. Add dependencies: `go get github.com/gofiber/fiber/v2` and `go get github.com/cloudwego/eino`
-3. Read the current story from `epics-and-stories.md` to find the next unimplemented story
+3. Read the current story from `docs/epics-and-stories.md` to find the next unimplemented story
 4. Follow the ATDD Red-Green-Refactor cycle for that story
