@@ -9,13 +9,7 @@
   },
   "files": [
     "scripts/",
-    "cmd/",
-    "internal/",
-    "api/",
-    "static/",
-    "configs/",
-    "go.mod",
-    "go.sum"
+    "configs/"
   ],
   "engines": {
     "node": ">=18.0.0"
