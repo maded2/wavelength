@@ -9,10 +9,11 @@
  */
 
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync, copyFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
+import { homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -123,8 +124,43 @@ async function downloadFromGitHub() {
   console.log(`✓ Installed ${binary} from GitHub Releases.`);
 }
 
+function installConfig() {
+  const SOURCE_CONFIG = join(ROOT, "configs/config.json");
+
+  if (!existsSync(SOURCE_CONFIG)) {
+    console.log("⚠ Default config not found — skipping config install.");
+    return;
+  }
+
+  let configDir;
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
+    configDir = join(appData, "wavelength");
+  } else {
+    configDir = join(homedir(), ".config", "wavelength");
+  }
+
+  const destPath = join(configDir, "config.json");
+
+  if (existsSync(destPath)) {
+    console.log(`⚠ Config already exists: ${destPath}`);
+    console.log("  Skipping — existing file preserved.");
+    return;
+  }
+
+  mkdirSync(configDir, { recursive: true });
+  copyFileSync(SOURCE_CONFIG, destPath);
+
+  console.log(`✓ Installed config to: ${destPath}`);
+  console.log("  Edit it with your LLM endpoint, model, and API key.");
+}
+
 // Run
-downloadFromGitHub().catch((err) => {
+downloadFromGitHub()
+  .then(() => {
+    installConfig();
+  })
+  .catch((err) => {
   console.error(`✗ Could not download from GitHub Releases: ${err.message}`);
   console.error("  Please check your network connection and try again.");
   // Cleanup temp dir on failure
