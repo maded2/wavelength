@@ -4,7 +4,6 @@
  * Post-install for Wavelength.
  *
  * Downloads the pre-built binary for the current platform from GitHub Releases.
- * Falls back to building from source if the download fails.
  *
  * Skips if SKIP_BUILD env var is set (useful for CI or packaging).
  */
@@ -35,9 +34,7 @@ const GITHUB_REPO = REPO
 
 if (!GITHUB_REPO) {
   console.error("⚠ No repository.url in package.json — cannot download from GitHub Releases.");
-  console.error("  Falling back to local build.");
-  buildFromSource();
-  process.exit(0);
+  process.exit(1);
 }
 
 // Map npm platform/arch to GitHub asset names
@@ -55,9 +52,7 @@ const platform = PLATFORM_MAP[platformKey];
 
 if (!platform) {
   console.error(`⚠ Unsupported platform: ${platformKey}`);
-  console.error("  Falling back to local build (requires Go).");
-  buildFromSource();
-  process.exit(0);
+  process.exit(1);
 }
 
 const { asset, binary } = platform;
@@ -128,35 +123,13 @@ async function downloadFromGitHub() {
   console.log(`✓ Installed ${binary} from GitHub Releases.`);
 }
 
-function buildFromSource() {
-  try {
-    execSync("go version", { encoding: "utf-8", stdio: "pipe" });
-  } catch {
-    console.error("✗ Go is not installed and no pre-built binary could be downloaded.");
-    console.error("  Install Go 1.22+ from https://go.dev/dl/");
-    return;
-  }
-
-  console.log("Post-install: building from source ...");
-  try {
-    execSync(`go build -o "${BINARY_PATH}" cmd/server/main.go`, {
-      cwd: ROOT,
-      stdio: ["inherit", "pipe", "inherit"],
-    });
-    console.log(`✓ Built ${binary} from source.`);
-  } catch {
-    console.error(`✗ Failed to build ${binary} from source.`);
-    console.error("  Try installing Go or check your network connection for GitHub Releases.");
-  }
-}
-
 // Run
 downloadFromGitHub().catch((err) => {
-  console.error(`⚠ Could not download from GitHub Releases: ${err.message}`);
-  console.error("  Falling back to building from source (requires Go).");
+  console.error(`✗ Could not download from GitHub Releases: ${err.message}`);
+  console.error("  Please check your network connection and try again.");
   // Cleanup temp dir on failure
   if (existsSync(TMP_DIR)) {
     rmSync(TMP_DIR, { recursive: true, force: true });
   }
-  buildFromSource();
+  process.exit(1);
 });
