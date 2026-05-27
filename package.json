@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./scripts/build.mjs",
   "bin": {
-    "wavelength": "./scripts/run.mjs"
+    "wavelength": "./scripts/wavelength.mjs"
   },
   "files": [
     "scripts/",
