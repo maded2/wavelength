@@ -20,6 +20,7 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 - **Context management** — Automatic conversation summarization for long interviews to stay within LLM context windows
 - **Configurable LLM backend** — Swap providers, models, and endpoints via a single JSON config file — no code changes needed
 - **MCP tool integration** — Connect to external MCP servers (stdio or SSE transport) to give the AI agent access to additional tools like filesystem access, web search, databases, and more
+- **Voice input** — Dictate messages via microphone; audio is transcribed by the LLM endpoint's Whisper API (`/v1/audio/transcriptions`). Auto-detected at startup — no extra config needed.
 - **Standalone binary** — No databases, no message queues, no external infrastructure. File-based persistence with atomic writes and file locking.
 
 ## Tech Stack
@@ -168,6 +169,8 @@ Example configuration:
 | `llm.path` | *(unused — eino uses `endpoint` as the base URL directly)* |
 | `persona.system_prompt` | Custom system prompt (uses sensible default if empty) |
 | `mcp.servers` | Array of MCP server configs (see [MCP Support](#mcp-support)) |
+| `voice.enabled` | `true` = force enable, `false` = disable, `null`/omitted = auto-detect (default) |
+| `voice.whisper_model` | Model name for transcription (default: `whisper-1`) |
 
 **Required fields**: `server.port`, `llm.provider`, `llm.model`, `llm.endpoint`, `llm.api_key`, `data_dir`. Missing fields cause a startup error with a descriptive message.
 
@@ -206,6 +209,7 @@ Users can then install via `npm install github:maded2/wavelength` and get the pr
 | `GET` | `/api/topics/:id/attachments` | List topic attachments |
 | `DELETE` | `/api/topics/:id/attachments/:attachmentId` | Delete an attachment (removes file + metadata) |
 | `GET` | `/api/topics/:id/document/download` | Download document (`?format=markdown\|pdf\|word`) |
+| `POST` | `/api/voice/transcribe` | Transcribe audio to text (multipart `audio` field) |
 
 ### Create a Topic
 
@@ -283,6 +287,65 @@ Type these in the chat input:
 | Command | Description |
 |---|---|
 | `/reevaluate` | Clears all conversation history and asks the AI to re-assess the requirement document from scratch |
+
+## Voice Input
+
+Wavelength supports dictating messages via microphone. Audio is transcribed by sending it to your LLM endpoint's `/v1/audio/transcriptions` API (OpenAI-compatible Whisper endpoint).
+
+### How It Works
+
+1. Click the 🎤 button in the chat input area to start recording
+2. Speak your message (English)
+3. Click 🎤 again to stop recording
+4. The transcribed text appears in the input textarea — edit if needed, then press Send
+
+### Requirements
+
+- Your LLM endpoint must support the OpenAI-compatible `/v1/audio/transcriptions` endpoint (e.g., OpenAI API, Open WebUI, LiteLLM with Whisper, vLLM with Whisper)
+- Browser must support `getUserMedia` (Chrome, Firefox, Edge, Safari)
+- Microphone access must be granted when the browser prompts
+
+### Auto-Detection
+
+At startup, Wavelength probes the LLM endpoint to check if `/v1/audio/transcriptions` is available:
+- **Available** → 🎤 button is active, voice input enabled
+- **Not available** → 🎤 button is grayed out with tooltip explaining why
+- **Explicitly disabled** → Set `voice.enabled: false` in config to always disable
+
+### Configuration
+
+```json
+{
+  "voice": {
+    "enabled": true,
+    "whisper_model": "whisper-1"
+  }
+}
+```
+
+| Field | Description |
+|---|---|
+| `voice.enabled` | `true` = force enable, `false` = disable, `null`/omitted = auto-detect at startup |
+| `voice.whisper_model` | Model name sent to the transcription API (default: `whisper-1`) |
+
+### API
+
+```bash
+POST /api/voice/transcribe
+Content-Type: multipart/form-data
+
+audio=<audio file>
+```
+
+Response:
+```json
+{
+  "success": true,
+  "text": "Your transcribed message here"
+}
+```
+
+Supported audio formats: `audio/webm`, `audio/ogg`, `audio/wav`, `audio/mpeg` (max 20 MB).
 
 ## MCP Support
 
@@ -439,7 +502,7 @@ MCP activity is logged with the `[MCP]` prefix:
 cmd/server/         — main entrypoint
 internal/
   config/           — JSON config loading and validation
-  llm/              — LLM client (Eino + OpenAI-compatible), tool calling, streaming
+  llm/              — LLM client (Eino + OpenAI-compatible), tool calling, streaming, voice transcription
   mcp/              — MCP client manager, server connections, tool conversion
   topic/            — Topic CRUD, file-based persistence, and type definitions
   interview/        — Interview orchestration service (context building, document extraction)

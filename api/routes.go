@@ -31,8 +31,7 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, 
 	// Topic chat page (serves the UI, not JSON)
 	app.Get("/topics/:id", TopicPage)
 
-	// Health check
-	app.Get("/health", HealthHandler(client))
+	// Health check is registered in main.go with voice status
 
 	// Topic CRUD
 	app.Get("/api/topics", func(c *fiber.Ctx) error {
@@ -712,6 +711,70 @@ func SetupRoutes(app *fiber.App, store topicpkg.TopicStore, client *llm.Client, 
 
 		// Stream the pipe to the HTTP response
 		return c.SendStream(pr)
+	})
+
+	// Voice transcription endpoint
+	app.Post("/api/voice/transcribe", func(c *fiber.Ctx) error {
+		// Parse multipart form (max 20MB for audio)
+		form, err := c.MultipartForm()
+		if err != nil {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"error":   "failed to parse audio upload: " + err.Error(),
+			})
+		}
+
+		files := form.File["audio"]
+		if len(files) == 0 {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"error":   "no audio file provided. Use form field name 'audio'.",
+			})
+		}
+
+		file := files[0]
+
+		// Check file size (max 20MB)
+		if file.Size > 20*1024*1024 {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"error":   "audio file too large (max 20MB)",
+			})
+		}
+
+		// Open uploaded file
+		src, err := file.Open()
+		if err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "failed to open audio file: " + err.Error(),
+			})
+		}
+		defer src.Close()
+
+		// Read audio data
+		audioData, err := io.ReadAll(src)
+		if err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "failed to read audio data: " + err.Error(),
+			})
+		}
+
+		// Transcribe
+		transcript, err := client.Transcribe(c.Context(), audioData)
+		if err != nil {
+			log.Printf("[VOICE] Transcription failed: %v", err)
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "transcription failed: " + err.Error(),
+			})
+		}
+
+		return c.Status(http.StatusOK).JSON(fiber.Map{
+			"success": true,
+			"text":    transcript,
+		})
 	})
 }
 

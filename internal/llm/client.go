@@ -1,11 +1,16 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -332,4 +337,169 @@ func (c *Client) APIPath() string {
 // for reference/logging purposes.
 func (c *Client) APIURL() string {
 	return c.cfg.LLM.Endpoint + c.APIPath()
+}
+
+// Transcribe sends audio data to the LLM endpoint's /v1/audio/transcriptions
+// endpoint (OpenAI-compatible) and returns the transcribed text.
+// Uses the configured whisper model (default: whisper-1).
+func (c *Client) Transcribe(ctx context.Context, audioData []byte) (string, error) {
+	endpoint := c.cfg.LLM.Endpoint
+	model := c.cfg.Voice.WhisperModel
+	if model == "" {
+		model = "whisper-1"
+	}
+
+	// Create a temporary file for the multipart upload
+	tmpFile, err := os.CreateTemp("", "voice-*.webm")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write(audioData); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("failed to write audio data: %v", err)
+	}
+	tmpFile.Close()
+
+	// Build multipart form
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Add the file
+	fileWriter, err := writer.CreateFormFile("file", filepath.Base(tmpFile.Name()))
+	if err != nil {
+		writer.Close()
+		return "", fmt.Errorf("failed to create form file: %v", err)
+	}
+
+	file, err := os.Open(tmpFile.Name())
+	if err != nil {
+		writer.Close()
+		return "", fmt.Errorf("failed to open temp file: %v", err)
+	}
+	defer file.Close()
+
+	if _, err := io.Copy(fileWriter, file); err != nil {
+		writer.Close()
+		return "", fmt.Errorf("failed to copy file data: %v", err)
+	}
+
+	// Add the model field
+	if err := writer.WriteField("model", model); err != nil {
+		writer.Close()
+		return "", fmt.Errorf("failed to write model field: %v", err)
+	}
+
+	writer.Close()
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint+"/v1/audio/transcriptions", body)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
+
+	// Execute request
+	timeout := time.Duration(c.cfg.LLM.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("transcription request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("transcription API error (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	// Parse response
+	var result struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to parse transcription response: %v", err)
+	}
+
+	log.Printf("[VOICE] Transcription successful: %d chars", len(result.Text))
+	return result.Text, nil
+}
+
+// CheckWhisper verifies that the LLM endpoint supports audio transcription.
+// Sends a minimal 1-second silent WAV to test the /v1/audio/transcriptions endpoint.
+func (c *Client) CheckWhisper(ctx context.Context) error {
+	// Generate a minimal valid WAV file (1 second, 16kHz, mono, 16-bit, silent)
+	wavData := generateSilentWAV(16000, 1)
+
+	_, err := c.Transcribe(ctx, wavData)
+	// The transcription may return empty text for silence, which is fine.
+	// We only care if the endpoint exists and responds with valid JSON.
+	if err != nil {
+		return fmt.Errorf("whisper endpoint check failed: %v", err)
+	}
+	return nil
+}
+
+// generateSilentWAV creates a minimal valid WAV file with silence.
+// sampleRate: samples per second (e.g., 16000)
+// durationSec: duration in seconds
+func generateSilentWAV(sampleRate int, durationSec int) []byte {
+	numSamples := sampleRate * durationSec
+	bitsPerSample := 16
+	byteRate := sampleRate * (bitsPerSample / 8)
+	dataSize := numSamples * (bitsPerSample / 8)
+	riffSize := 36 + dataSize
+
+	buf := &bytes.Buffer{}
+
+	// RIFF header
+	buf.WriteString("RIFF")
+	writeLE32(buf, riffSize)
+	buf.WriteString("WAVE")
+
+	// fmt chunk
+	buf.WriteString("fmt ")
+	writeLE32(buf, 16) // chunk size
+	writeLE16(buf, 1)  // audio format (PCM)
+	writeLE16(buf, 1)  // num channels (mono)
+	writeLE32(buf, sampleRate)
+	writeLE32(buf, byteRate)
+	writeLE16(buf, bitsPerSample/8) // block align
+	writeLE16(buf, bitsPerSample)
+
+	// data chunk
+	buf.WriteString("data")
+	writeLE32(buf, dataSize)
+
+	// Silent samples
+	buf.Bytes()
+	buf.Grow(dataSize)
+	for i := 0; i < dataSize; i++ {
+		buf.WriteByte(0)
+	}
+
+	return buf.Bytes()
+}
+
+func writeLE16(buf *bytes.Buffer, v int) {
+	buf.WriteByte(byte(v))
+	buf.WriteByte(byte(v >> 8))
+}
+
+func writeLE32(buf *bytes.Buffer, v int) {
+	buf.WriteByte(byte(v))
+	buf.WriteByte(byte(v >> 8))
+	buf.WriteByte(byte(v >> 16))
+	buf.WriteByte(byte(v >> 24))
 }

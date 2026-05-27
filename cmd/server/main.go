@@ -68,6 +68,21 @@ func main() {
 		log.Println("[MCP] No MCP servers configured — skipping MCP initialization")
 	}
 
+	// Check voice (whisper) availability
+	var voiceAvailable bool
+	if !cfg.Voice.IsExplicitlyDisabled() {
+		voiceCtx, voiceCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := client.CheckWhisper(voiceCtx); err != nil {
+			log.Printf("WARNING: Whisper transcription endpoint not available: %v", err)
+			log.Println("Voice input will be disabled. Ensure your LLM endpoint supports /v1/audio/transcriptions.")
+			voiceAvailable = false
+		} else {
+			log.Println("Whisper transcription endpoint available — voice input enabled.")
+			voiceAvailable = true
+		}
+		voiceCancel()
+	}
+
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: false,
@@ -75,6 +90,9 @@ func main() {
 
 	// Register all routes
 	api.SetupRoutes(app, store, client, cfg.DataDir, mcpMgr)
+
+	// Register health handler with voice status
+	app.Get("/health", api.HealthHandler(client, voiceAvailable))
 
 	// Persist topics on shutdown
 	go func() {

@@ -600,6 +600,56 @@
         .upload-status.show { display: block; }
         .upload-status.error { background: rgba(220,38,38,0.1); color: var(--danger); }
 
+        /* ── Microphone Button ── */
+        .mic-btn {
+            background: var(--btn-sec-bg);
+            color: var(--btn-sec-text);
+            border: 1px solid var(--btn-sec-border);
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: background 0.2s, border-color 0.2s;
+            flex-shrink: 0;
+            position: relative;
+        }
+        .mic-btn:hover { background: var(--btn-sec-hover); border-color: var(--accent); }
+        .mic-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .mic-btn.recording {
+            background: #dc2626;
+            color: #fff;
+            border-color: #dc2626;
+            animation: mic-pulse 1.2s ease-in-out infinite;
+        }
+        .mic-btn.processing {
+            background: var(--accent-muted);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        @keyframes mic-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.4); }
+            50%      { box-shadow: 0 0 0 8px rgba(220,38,38,0); }
+        }
+        .recording-timer {
+            position: absolute;
+            bottom: -2px;
+            right: -4px;
+            font-size: 9px;
+            font-weight: 700;
+            background: #dc2626;
+            color: #fff;
+            padding: 1px 4px;
+            border-radius: 4px;
+            display: none;
+            min-width: 28px;
+            text-align: center;
+        }
+        .mic-btn.recording .recording-timer { display: block; }
+
         .spinner {
             display: inline-block;
             width: 14px; height: 14px;
@@ -668,6 +718,7 @@
                     <input type="file" id="file-input" accept=".md,.markdown,.pdf,.docx" onchange="handleFileUpload(event)">
                     <button class="upload-btn" id="upload-btn" onclick="document.getElementById('file-input').click()" title="Upload document (Markdown, PDF, Word)">📎</button>
                     <textarea id="message-input" placeholder="Type your message or upload a document..." rows="1"></textarea>
+                    <button class="mic-btn" id="mic-btn" onclick="toggleRecording()" title="Voice input (click to start/stop)">🎤<span class="recording-timer" id="recording-timer">0:00</span></button>
                     <button id="send-btn" onclick="sendMessage()">Send</button>
                 </div>
             </div>
@@ -1246,6 +1297,217 @@
         }
 
         loadTopic();
+
+        // ── Voice Recording ──
+        (function() {
+            var mediaRecorder = null;
+            var audioChunks = [];
+            var stream = null;
+            var timerInterval = null;
+            var startTime = null;
+            var isRecording = false;
+
+            var micBtn = document.getElementById('mic-btn');
+            var timerEl = document.getElementById('recording-timer');
+            var sendBtn = document.getElementById('send-btn');
+            var textarea = document.getElementById('message-input');
+            var inputArea = document.querySelector('.input-area');
+
+            // Check if voice is available by probing health
+            var voiceAvailable = false;
+            fetch('/health')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.voice && data.voice.status === 'available') {
+                        voiceAvailable = true;
+                    } else {
+                        micBtn.disabled = true;
+                        micBtn.title = 'Voice input unavailable — LLM endpoint does not support transcription';
+                    }
+                })
+                .catch(function() {
+                    micBtn.disabled = true;
+                    micBtn.title = 'Voice input unavailable — cannot check status';
+                });
+
+            window.toggleRecording = function() {
+                if (!voiceAvailable) return;
+
+                if (isRecording) {
+                    stopRecording();
+                } else {
+                    startRecording();
+                }
+            };
+
+            function startRecording() {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    showVoiceError('Microphone not supported in this browser. Use Chrome, Firefox, or Edge.');
+                    return;
+                }
+
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(function(s) {
+                        stream = s;
+                        audioChunks = [];
+
+                        // Use WebM/Opus format (best compression)
+                        var mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                            ? 'audio/webm;codecs=opus'
+                            : MediaRecorder.isTypeSupported('audio/webm')
+                                ? 'audio/webm'
+                                : 'audio/ogg';
+
+                        mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+
+                        mediaRecorder.ondataavailable = function(e) {
+                            if (e.data.size > 0) {
+                                audioChunks.push(e.data);
+                            }
+                        };
+
+                        mediaRecorder.onstop = function() {
+                            // Stop all tracks
+                            if (stream) {
+                                stream.getTracks().forEach(function(t) { t.stop(); });
+                                stream = null;
+                            }
+                            sendAudio();
+                        };
+
+                        mediaRecorder.start(100); // collect data every 100ms
+                        isRecording = true;
+                        startTime = Date.now();
+
+                        // Update UI
+                        micBtn.classList.add('recording');
+                        micBtn.title = 'Click to stop recording';
+                        textarea.placeholder = '🎤 Recording... click mic to stop';
+
+                        // Start timer
+                        timerInterval = setInterval(updateTimer, 500);
+                        updateTimer();
+
+                        // Disable other input controls
+                        sendBtn.disabled = true;
+                        textarea.disabled = true;
+                    })
+                    .catch(function(err) {
+                        console.error('Microphone access denied:', err);
+                        if (err.name === 'NotAllowedError') {
+                            showVoiceError('Microphone access denied. Please allow microphone access in your browser settings.');
+                        } else if (err.name === 'NotFoundError') {
+                            showVoiceError('No microphone found. Please connect a microphone and try again.');
+                        } else {
+                            showVoiceError('Microphone error: ' + err.message);
+                        }
+                    });
+            }
+
+            function stopRecording() {
+                isRecording = false;
+
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+
+                // Clear timer
+                clearInterval(timerInterval);
+                timerInterval = null;
+
+                // Update UI
+                micBtn.classList.remove('recording');
+                micBtn.classList.add('processing');
+                micBtn.title = 'Processing...';
+                textarea.placeholder = '⏳ Processing audio...';
+            }
+
+            function updateTimer() {
+                if (!startTime) return;
+                var elapsed = Math.floor((Date.now() - startTime) / 1000);
+                var mins = Math.floor(elapsed / 60);
+                var secs = elapsed % 60;
+                timerEl.textContent = mins + ':' + (secs < 10 ? '0' : '') + secs;
+
+                // Cap at 5 minutes
+                if (elapsed >= 300) {
+                    stopRecording();
+                    showVoiceError('Recording exceeded 5-minute limit.');
+                }
+            }
+
+            function sendAudio() {
+                if (audioChunks.length === 0) {
+                    resetMicUI();
+                    showVoiceError('No audio captured. Please try again.');
+                    return;
+                }
+
+                var audioBlob = new Blob(audioChunks, { type: audioChunks[0].type || 'audio/webm' });
+
+                var formData = new FormData();
+                formData.append('audio', audioBlob, 'recording.webm');
+
+                fetch('/api/voice/transcribe', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+                .then(function(result) {
+                    if (!result.ok) {
+                        throw new Error(result.data.error || 'Transcription failed');
+                    }
+                    // Insert transcribed text into textarea
+                    var text = result.data.text || '';
+                    if (text.trim()) {
+                        textarea.value = text;
+                        textarea.style.height = 'auto';
+                        textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';
+                        showVoiceStatus('Transcribed (' + text.length + ' chars). Edit and send.', false);
+                    } else {
+                        showVoiceError('No speech detected. Please try again.');
+                    }
+                    textarea.focus();
+                })
+                .catch(function(err) {
+                    console.error('Transcription error:', err);
+                    showVoiceError('Transcription failed: ' + err.message);
+                })
+                .finally(function() {
+                    resetMicUI();
+                });
+            }
+
+            function resetMicUI() {
+                micBtn.classList.remove('recording', 'processing');
+                micBtn.title = 'Voice input (click to start/stop)';
+                textarea.placeholder = 'Type your message or upload a document...';
+                textarea.disabled = false;
+                sendBtn.disabled = false;
+                textarea.focus();
+            }
+
+            function showVoiceError(msg) {
+                showVoiceStatus(msg, true);
+            }
+
+            function showVoiceStatus(msg, isError) {
+                var statusEl = document.getElementById('upload-status');
+                statusEl.textContent = msg;
+                statusEl.classList.add('show');
+                if (isError) {
+                    statusEl.classList.add('error');
+                } else {
+                    statusEl.classList.remove('error');
+                }
+                // Auto-hide after 5 seconds
+                setTimeout(function() {
+                    if (!statusEl.classList.contains('error')) {
+                        statusEl.classList.remove('show');
+                    }
+                }, 5000);
+            }
+        })();
 
         // ── Draggable Splitter ──
         (function() {

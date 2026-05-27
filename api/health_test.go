@@ -154,7 +154,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 		client := llm.NewClient(cfg)
 		app := fiber.New()
-		app.Get("/health", HealthHandler(client))
+		app.Get("/health", HealthHandler(client, false))
 
 		// First check - LLM unavailable
 		req1 := httptest.NewRequest("GET", "/health", nil)
@@ -224,7 +224,7 @@ func newHealthTestApp(t *testing.T, available bool) (*fiber.App, *httptest.Serve
 
 	client := llm.NewClient(cfg)
 	app := fiber.New()
-	app.Get("/health", HealthHandler(client))
+	app.Get("/health", HealthHandler(client, false))
 	return app, llmServer
 }
 
@@ -244,6 +244,6 @@ func newHealthTestAppUnreachable(t *testing.T) *fiber.App {
 
 	client := llm.NewClient(cfg)
 	app := fiber.New()
-	app.Get("/health", HealthHandler(client))
+	app.Get("/health", HealthHandler(client, false))
 	return app
 }

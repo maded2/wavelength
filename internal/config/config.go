@@ -13,6 +13,7 @@ type Config struct {
 	Server  ServerConfig  `json:"server"`
 	LLM     LLMConfig     `json:"llm"`
 	Persona PersonaConfig `json:"persona"`
+	Voice   VoiceConfig   `json:"voice"`
 	MCP     MCPConfig     `json:"mcp"`
 	DataDir string        `json:"data_dir"`
 }
@@ -161,6 +162,31 @@ type MCPConfig struct {
 // HasMCP returns true if any MCP servers are configured.
 func (c *Config) HasMCP() bool {
 	return len(c.MCP.Servers) > 0
+}
+
+// VoiceConfig holds voice transcription settings.
+type VoiceConfig struct {
+	// Enabled explicitly enables or disables voice. If omitted (zero value),
+	// the server auto-detects by probing the LLM endpoint's /v1/audio/transcriptions.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// WhisperModel is the model name sent to the transcription API.
+	// Default: "whisper-1". Use whatever your LLM endpoint supports.
+	WhisperModel string `json:"whisper_model,omitempty"`
+}
+
+// IsEnabled returns true if voice is explicitly enabled or auto-detect mode.
+// Returns false only when explicitly disabled.
+func (v VoiceConfig) IsEnabled() bool {
+	if v.Enabled == nil {
+		return true // auto-detect
+	}
+	return *v.Enabled
+}
+
+// IsExplicitlyDisabled returns true when voice is explicitly set to false.
+func (v VoiceConfig) IsExplicitlyDisabled() bool {
+	return v.Enabled != nil && !*v.Enabled
 }
 
 var (

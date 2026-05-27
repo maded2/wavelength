@@ -97,6 +97,36 @@ This is guidance, not a hard requirement. Adjust as implementation reveals bette
 
 This schema is subject to change as Epic 1 stories are implemented.
 
+## Voice Input Architecture
+
+Voice input transcribes spoken English to text via the LLM endpoint's `/v1/audio/transcriptions` API (OpenAI-compatible Whisper endpoint). No Python or C++ dependencies — pure Go.
+
+**Flow:**
+1. Browser captures audio via `MediaRecorder` API (WebM/Opus)
+2. Audio sent to `POST /api/voice/transcribe` as multipart form data
+3. Go backend forwards audio to `{llm.endpoint}/v1/audio/transcriptions` with the configured API key
+4. Transcribed text returned to browser, inserted into message textarea
+5. User edits if needed, then sends normally
+
+**Key files:**
+- `internal/llm/client.go` — `Transcribe()` and `CheckWhisper()` methods
+- `internal/config/config.go` — `VoiceConfig` struct (enabled, whisper_model)
+- `api/routes.go` — `POST /api/voice/transcribe` handler
+- `api/static/topic.html` — 🎤 button, MediaRecorder JS, recording states
+- `cmd/server/main.go` — Startup whisper availability check
+
+**Auto-detection:** At startup, `CheckWhisper()` sends a silent WAV to the endpoint. If it responds with valid JSON, voice is enabled. If not, the 🎤 button is grayed out.
+
+**Config:**
+```json
+{
+  "voice": {
+    "enabled": true,        // null = auto-detect, false = always off
+    "whisper_model": "whisper-1"
+  }
+}
+```
+
 ## First Steps for a New Session
 
 1. Run `go mod init wavelength` if the module doesn't exist yet
