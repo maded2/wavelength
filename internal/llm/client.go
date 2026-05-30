@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -457,8 +458,9 @@ func (c *Client) transcribeOpenAI(ctx context.Context, endpoint string, audioDat
 }
 
 // transcribeWhisperCPP sends audio to a whisper.cpp /inference endpoint.
+// Converts the audio to WAV format first, as whisper.cpp requires WAV input.
 func (c *Client) transcribeWhisperCPP(ctx context.Context, endpoint string, audioData []byte, timeout time.Duration) (string, error) {
-	// Create a temporary file for the multipart upload
+	// Create a temporary file for the original audio
 	tmpFile, err := os.CreateTemp("", "voice-*.webm")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %v", err)
@@ -471,21 +473,28 @@ func (c *Client) transcribeWhisperCPP(ctx context.Context, endpoint string, audi
 	}
 	tmpFile.Close()
 
+	// Convert to WAV using ffmpeg (whisper.cpp requires WAV)
+	wavFile, err := convertToWAV(ctx, tmpFile.Name())
+	if err != nil {
+		return "", fmt.Errorf("failed to convert audio to WAV: %v", err)
+	}
+	defer os.Remove(wavFile)
+
 	// Build multipart form
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	// Add the file
-	fileWriter, err := writer.CreateFormFile("file", filepath.Base(tmpFile.Name()))
+	// Add the WAV file
+	fileWriter, err := writer.CreateFormFile("file", filepath.Base(wavFile))
 	if err != nil {
 		writer.Close()
 		return "", fmt.Errorf("failed to create form file: %v", err)
 	}
 
-	file, err := os.Open(tmpFile.Name())
+	file, err := os.Open(wavFile)
 	if err != nil {
 		writer.Close()
-		return "", fmt.Errorf("failed to open temp file: %v", err)
+		return "", fmt.Errorf("failed to open WAV file: %v", err)
 	}
 	defer file.Close()
 
@@ -548,6 +557,30 @@ func (c *Client) transcribeWhisperCPP(ctx context.Context, endpoint string, audi
 
 	log.Printf("[VOICE] Transcription successful (whispercpp): %d chars", len(text))
 	return text, nil
+}
+
+// convertToWAV converts an audio file to WAV format using ffmpeg.
+// whisper.cpp requires WAV input, so this converts WebM/Opus from the browser.
+func convertToWAV(ctx context.Context, inputFile string) (string, error) {
+	// Create a temporary WAV file
+	wavFile, err := os.CreateTemp("", "voice-*.wav")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp WAV file: %v", err)
+	}
+	wavPath := wavFile.Name()
+	wavFile.Close()
+
+	// Run ffmpeg to convert to WAV (16kHz, mono, 16-bit PCM)
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-i", inputFile, "-ar", "16000", "-ac", "1", "-f", "wav", wavPath)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	if err := cmd.Run(); err != nil {
+		os.Remove(wavPath)
+		return "", fmt.Errorf("ffmpeg conversion failed: %v", err)
+	}
+
+	return wavPath, nil
 }
 
 // CheckWhisper verifies that the LLM endpoint supports audio transcription.

@@ -1,6 +1,7 @@
 package llm_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -358,7 +359,8 @@ func TestCheckWhisper(t *testing.T) {
 		defer cancel()
 
 		// Send a silent WAV as audio data
-		_, err := client.Transcribe(ctx, []byte{})
+		wavData := generateSilentWAV(16000, 1)
+		_, err := client.Transcribe(ctx, wavData)
 		if err != nil {
 			t.Errorf("expected no error, got: %v", err)
 		}
@@ -391,7 +393,8 @@ func TestCheckWhisper(t *testing.T) {
 		defer cancel()
 
 		// Send a silent WAV as audio data
-		_, err := client.Transcribe(ctx, []byte{})
+		wavData := generateSilentWAV(16000, 1)
+		_, err := client.Transcribe(ctx, wavData)
 		if err != nil {
 			t.Errorf("expected no error, got: %v", err)
 		}
@@ -520,4 +523,54 @@ func toJSON(t *testing.T, v interface{}) string {
 		t.Fatalf("failed to marshal JSON: %v", err)
 	}
 	return string(data)
+}
+
+// generateSilentWAV creates a minimal valid WAV file with silence for testing.
+func generateSilentWAV(sampleRate int, durationSec int) []byte {
+	numSamples := sampleRate * durationSec
+	bitsPerSample := 16
+	byteRate := sampleRate * (bitsPerSample / 8)
+	dataSize := numSamples * (bitsPerSample / 8)
+	riffSize := 36 + dataSize
+
+	buf := &bytes.Buffer{}
+
+	// RIFF header
+	buf.WriteString("RIFF")
+	writeLE32Test(buf, riffSize)
+	buf.WriteString("WAVE")
+
+	// fmt chunk
+	buf.WriteString("fmt ")
+	writeLE32Test(buf, 16) // chunk size
+	writeLE16Test(buf, 1)  // audio format (PCM)
+	writeLE16Test(buf, 1)  // num channels (mono)
+	writeLE32Test(buf, sampleRate)
+	writeLE32Test(buf, byteRate)
+	writeLE16Test(buf, bitsPerSample/8) // block align
+	writeLE16Test(buf, bitsPerSample)
+
+	// data chunk
+	buf.WriteString("data")
+	writeLE32Test(buf, dataSize)
+
+	// Silent samples
+	buf.Grow(dataSize)
+	for i := 0; i < dataSize; i++ {
+		buf.WriteByte(0)
+	}
+
+	return buf.Bytes()
+}
+
+func writeLE16Test(buf *bytes.Buffer, v int) {
+	buf.WriteByte(byte(v))
+	buf.WriteByte(byte(v >> 8))
+}
+
+func writeLE32Test(buf *bytes.Buffer, v int) {
+	buf.WriteByte(byte(v))
+	buf.WriteByte(byte(v >> 8))
+	buf.WriteByte(byte(v >> 16))
+	buf.WriteByte(byte(v >> 24))
 }
