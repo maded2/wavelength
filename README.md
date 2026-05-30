@@ -136,9 +136,8 @@ Example configuration:
     "system_prompt": ""
   },
   "voice": {
-    "whisper_url": "",
-    "whisper_type": "openai",
-    "whisper_model": "whisper-1"
+    "whisper_url": "http://192.168.8.5:8085",
+    "whisper_type": "whispercpp"
   },
   "mcp": {
     "servers": []
@@ -304,9 +303,8 @@ At startup, Wavelength probes the LLM endpoint to check if `/v1/audio/transcript
 {
   "voice": {
     "enabled": true,
-    "whisper_url": "https://api.openai.com/v1",
-    "whisper_type": "openai",
-    "whisper_model": "whisper-1"
+    "whisper_url": "http://192.168.8.5:8085",
+    "whisper_type": "whispercpp"
   }
 }
 ```
@@ -318,18 +316,20 @@ At startup, Wavelength probes the LLM endpoint to check if `/v1/audio/transcript
 | `voice.whisper_type` | Server type: `openai` (default) uses `/v1/audio/transcriptions` with Bearer auth; `whispercpp` uses `/inference` with no auth |
 | `voice.whisper_model` | Model name sent to the transcription API (default: `whisper-1`, ignored for whispercpp) |
 
-### Whisper.cpp Support
+### OpenAI Whisper
 
-Wavelength supports [whisper.cpp](https://github.com/ggerganov/whisper.cpp) servers. Configure it with `whisper_type: "whispercpp"`:
+To use an OpenAI-compatible Whisper endpoint instead, set `whisper_type` to `"openai"`:
 
 ```json
 {
   "voice": {
-    "whisper_url": "http://192.168.8.5:8085",
-    "whisper_type": "whispercpp"
+    "whisper_url": "https://api.openai.com/v1",
+    "whisper_type": "openai",
+    "whisper_model": "whisper-1"
   }
 }
-```n
+```
+
 The whisper.cpp server uses its `/inference` endpoint with no authentication. Text segments from the response are joined to produce the final transcription.
 
 ### API
