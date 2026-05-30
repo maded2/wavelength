@@ -480,16 +480,18 @@ MCP activity is logged with the `[MCP]` prefix:
 ```
 cmd/server/         — main entrypoint
 internal/
-  config/           — JSON config loading and validation
+  config/           — JSON config loading, validation, and voice config
   llm/              — LLM client (Eino + OpenAI-compatible), tool calling, streaming, voice transcription
-  mcp/              — MCP client manager, server connections, tool conversion
-  topic/            — Topic CRUD, file-based persistence, and type definitions
-  interview/        — Interview orchestration service (context building, document extraction)
+  mcp/              — MCP client manager, server connections, tool/schema conversion
+  topic/            — Topic CRUD, file-based persistence (filestore), and type definitions
+  interview/        — Interview orchestration service (context building, document extraction, prompts)
   convert/          — Document format conversion (PDF, DOCX → Markdown)
   export/           — Document export (Markdown, PDF, Word)
-api/                — Fiber handlers and routes
+api/                — Fiber handlers, routes, health check, and landing page
 api/static/         — Embedded frontend assets (HTML)
 configs/            — Example configuration files
+scripts/            — Build, release, install, and npm lifecycle scripts (mjs)
+docs/               — Design documents, epics, problem analysis, and test reviews
 ```
 
 ## Development
@@ -507,7 +509,7 @@ Wavelength follows **Acceptance Test Driven Development (ATDD)** — every test 
 
 | Metric | Value |
 |---|---|
-| Test files | 31 across 8 packages |
+| Test files | 36 across 8 packages |
 | Suite runtime | ~0.13s |
 | Farley Score | **8.1/10** (Excellent) |
 | Mocking | All LLM calls mocked via `httptest.NewServer`; no real API calls |
