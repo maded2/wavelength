@@ -203,6 +203,97 @@ func TestLLMClientCall(t *testing.T) {
 	})
 }
 
+func TestCheckWhisper(t *testing.T) {
+	t.Run("whisper check succeeds when transcription endpoint is available", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/v1/audio/transcriptions" {
+				t.Errorf("expected path /v1/audio/transcriptions, got %s", r.URL.Path)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"text": "hello"})
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: server.URL,
+				APIKey:   "test-key",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		err := client.CheckWhisper(ctx)
+		if err != nil {
+			t.Errorf("expected no error for available endpoint, got: %v", err)
+		}
+	})
+
+	t.Run("whisper check fails when transcription endpoint is unreachable", func(t *testing.T) {
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: "http://localhost:59999",
+				APIKey:   "test-key",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		err := client.CheckWhisper(ctx)
+		if err == nil {
+			t.Error("expected error for unreachable endpoint, got nil")
+		}
+	})
+
+	t.Run("whisper check uses custom whisper_url when configured", func(t *testing.T) {
+		var receivedPath string
+		whisperServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedPath = r.URL.Path
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"text": "transcribed"})
+		}))
+		defer whisperServer.Close()
+
+		// LLM server should not be contacted for transcription
+		llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Error("LLM server should not be called when whisper_url is set")
+		}))
+		defer llmServer.Close()
+
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: llmServer.URL,
+				APIKey:   "test-key",
+			},
+			Voice: config.VoiceConfig{
+				WhisperURL: whisperServer.URL,
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		err := client.CheckWhisper(ctx)
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+		}
+		if receivedPath != "/v1/audio/transcriptions" {
+			t.Errorf("expected path /v1/audio/transcriptions on whisper server, got %s", receivedPath)
+		}
+	})
+}
+
 func TestLLMClientStreamResponse(t *testing.T) {
 	t.Run("streaming returns token events then done", func(t *testing.T) {
 		server := newOpenAITestServer(t, func(w http.ResponseWriter, r *http.Request) {

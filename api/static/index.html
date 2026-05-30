@@ -306,6 +306,7 @@
         <div class="status-bar">
             <span>Status:</span>
             <span id="llm-status" class="status-ok">Checking...</span>
+            <span id="voice-status" class="status-warn">Voice: Checking...</span>
         </div>
 
         <div class="card">
@@ -364,23 +365,36 @@
             }
         })();
 
-        // Check LLM status
+        // Check LLM and voice status
         fetch('/health')
             .then(r => r.json())
             .then(data => {
-                const el = document.getElementById('llm-status');
+                const llmEl = document.getElementById('llm-status');
+                const voiceEl = document.getElementById('voice-status');
+
                 if (data.llm && data.llm.status === 'available') {
-                    el.textContent = 'AI Agent Available';
-                    el.className = 'status-ok';
+                    llmEl.textContent = 'AI Agent Available';
+                    llmEl.className = 'status-ok';
                 } else {
-                    el.textContent = 'AI Agent Unavailable' + (data.llm && data.llm.reason ? ' — ' + data.llm.reason : '');
-                    el.className = 'status-warn';
+                    llmEl.textContent = 'AI Agent Unavailable' + (data.llm && data.llm.reason ? ' — ' + data.llm.reason : '');
+                    llmEl.className = 'status-warn';
+                }
+
+                if (data.voice && data.voice.status === 'available') {
+                    voiceEl.textContent = 'Voice: Available';
+                    voiceEl.className = 'status-ok';
+                } else {
+                    voiceEl.textContent = 'Voice: Unavailable' + (data.voice && data.voice.reason ? ' — ' + data.voice.reason : '');
+                    voiceEl.className = 'status-warn';
                 }
             })
             .catch(() => {
-                const el = document.getElementById('llm-status');
-                el.textContent = 'AI Agent Unavailable — Cannot connect';
-                el.className = 'status-warn';
+                const llmEl = document.getElementById('llm-status');
+                const voiceEl = document.getElementById('voice-status');
+                llmEl.textContent = 'AI Agent Unavailable — Cannot connect';
+                llmEl.className = 'status-warn';
+                voiceEl.textContent = 'Voice: Unavailable';
+                voiceEl.className = 'status-warn';
             });
 
         // Load topics

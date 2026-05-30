@@ -46,6 +46,14 @@ func TestLandingPage(t *testing.T) {
 			contentType:    "text/html",
 			bodyContains:   []string{"requirement"},
 		},
+		{
+			name:           "displays voice chat availability status",
+			method:         "GET",
+			path:           "/",
+			expectedStatus: http.StatusOK,
+			contentType:    "text/html",
+			bodyContains:   []string{"voice-status", "Voice"},
+		},
 	}
 
 	for _, tc := range tests {

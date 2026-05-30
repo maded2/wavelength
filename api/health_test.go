@@ -127,6 +127,133 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 	})
 
+	t.Run("health endpoint reports voice as available when whisper endpoint is available", func(t *testing.T) {
+		app, llmServer := newHealthTestAppWithVoice(t, true, true)
+		defer llmServer.Close()
+
+		req := httptest.NewRequest("GET", "/health", nil)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("failed to make request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("failed to read response: %v", err)
+		}
+
+		var health map[string]interface{}
+		if err := json.Unmarshal(body, &health); err != nil {
+			t.Fatalf("expected JSON response, got: %s", string(body))
+		}
+
+		voiceStatus, ok := health["voice"].(map[string]interface{})
+		if !ok {
+			t.Fatal("expected 'voice' field in health response")
+		}
+		if voiceStatus["status"] != "available" {
+			t.Errorf("expected voice status 'available', got: %v", voiceStatus["status"])
+		}
+	})
+
+	t.Run("health endpoint reports voice as unavailable when whisper endpoint is not available", func(t *testing.T) {
+		app, llmServer := newHealthTestApp(t, true)
+		defer llmServer.Close()
+
+		cfg := &config.Config{
+			Server: config.ServerConfig{Port: 3000},
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: llmServer.URL,
+				APIKey:   "test-key",
+			},
+			DataDir: t.TempDir(),
+		}
+
+		client := llm.NewClient(cfg)
+		app = fiber.New()
+		app.Get("/health", HealthHandler(client, false)) // voiceAvailable = false
+
+		req := httptest.NewRequest("GET", "/health", nil)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("failed to make request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("failed to read response: %v", err)
+		}
+
+		var health map[string]interface{}
+		if err := json.Unmarshal(body, &health); err != nil {
+			t.Fatalf("expected JSON response, got: %s", string(body))
+		}
+
+		voiceStatus, ok := health["voice"].(map[string]interface{})
+		if !ok {
+			t.Fatal("expected 'voice' field in health response")
+		}
+		if voiceStatus["status"] != "unavailable" {
+			t.Errorf("expected voice status 'unavailable', got: %v", voiceStatus["status"])
+		}
+
+		// Should include a reason
+		reason, ok := voiceStatus["reason"].(string)
+		if !ok || reason == "" {
+			t.Error("expected a reason for voice unavailability")
+		}
+	})
+
+	t.Run("health endpoint reports voice as unavailable when explicitly disabled", func(t *testing.T) {
+		app, llmServer := newHealthTestApp(t, true)
+		defer llmServer.Close()
+
+		// Even when whisper endpoint is available, if explicitly disabled, voice should be unavailable
+		cfg := &config.Config{
+			Server: config.ServerConfig{Port: 3000},
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: llmServer.URL,
+				APIKey:   "test-key",
+			},
+			DataDir: t.TempDir(),
+		}
+
+		client := llm.NewClient(cfg)
+		app = fiber.New()
+		app.Get("/health", HealthHandler(client, false)) // voiceAvailable = false (disabled)
+
+		req := httptest.NewRequest("GET", "/health", nil)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("failed to make request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("failed to read response: %v", err)
+		}
+
+		var health map[string]interface{}
+		if err := json.Unmarshal(body, &health); err != nil {
+			t.Fatalf("expected JSON response, got: %s", string(body))
+		}
+
+		voiceStatus, ok := health["voice"].(map[string]interface{})
+		if !ok {
+			t.Fatal("expected 'voice' field in health response")
+		}
+		if voiceStatus["status"] != "unavailable" {
+			t.Errorf("expected voice status 'unavailable' when disabled, got: %v", voiceStatus["status"])
+		}
+	})
+
 	t.Run("health status reflects real-time LLM availability", func(t *testing.T) {
 		// Server that starts unavailable, then becomes available
 		available := false
@@ -246,4 +373,35 @@ func newHealthTestAppUnreachable(t *testing.T) *fiber.App {
 	app := fiber.New()
 	app.Get("/health", HealthHandler(client, false))
 	return app
+}
+
+// newHealthTestAppWithVoice creates a Fiber app with a health endpoint wired to a mock LLM server
+// and a configurable voiceAvailable flag.
+func newHealthTestAppWithVoice(t *testing.T, llmAvailable bool, voiceAvailable bool) (*fiber.App, *httptest.Server) {
+	t.Helper()
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if llmAvailable {
+			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{Port: 3000},
+		LLM: config.LLMConfig{
+			Provider: "openai",
+			Model:    "gpt-4",
+			Endpoint: llmServer.URL,
+			APIKey:   "test-key",
+		},
+		DataDir: t.TempDir(),
+	}
+
+	client := llm.NewClient(cfg)
+	app := fiber.New()
+	app.Get("/health", HealthHandler(client, voiceAvailable))
+	return app, llmServer
 }
