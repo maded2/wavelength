@@ -556,7 +556,7 @@ func (c *Client) transcribeWhisperCPP(ctx context.Context, endpoint string, audi
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("whisper.cpp API error (HTTP %d): %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("transcription failed (HTTP %d)", resp.StatusCode)
 	}
 
 	// Parse response — whisper.cpp returns {"text": "..."} or {"text": ["...", ...]}
