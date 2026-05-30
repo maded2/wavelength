@@ -71,16 +71,28 @@ func main() {
 	// Check voice (whisper) availability
 	var voiceAvailable bool
 	if !cfg.Voice.IsExplicitlyDisabled() {
+		whisperType := cfg.Voice.WhisperType
+		if whisperType == "" {
+			whisperType = "openai"
+		}
+		whisperURL := cfg.Voice.WhisperURL
+		if whisperURL == "" {
+			whisperURL = cfg.LLM.Endpoint
+		}
+		log.Printf("[VOICE] Checking whisper availability (type=%s, url=%s)...", whisperType, whisperURL)
+
 		voiceCtx, voiceCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		if err := client.CheckWhisper(voiceCtx); err != nil {
-			log.Printf("WARNING: Whisper transcription endpoint not available: %v", err)
-			log.Println("Voice input will be disabled. Ensure your LLM endpoint supports /v1/audio/transcriptions.")
+			log.Printf("[VOICE] WARNING: Whisper transcription endpoint not available: %v", err)
+			log.Println("[VOICE] Voice input will be disabled.")
 			voiceAvailable = false
 		} else {
-			log.Println("Whisper transcription endpoint available — voice input enabled.")
+			log.Printf("[VOICE] Whisper transcription endpoint available (type=%s, url=%s) — voice input enabled.", whisperType, whisperURL)
 			voiceAvailable = true
 		}
 		voiceCancel()
+	} else {
+		log.Println("[VOICE] Voice input explicitly disabled in config — skipping availability check.")
 	}
 
 	// Create Fiber app
