@@ -527,16 +527,24 @@ func (c *Client) transcribeWhisperCPP(ctx context.Context, endpoint string, audi
 		return "", fmt.Errorf("whisper.cpp API error (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
 
-	// Parse response — whisper.cpp returns {"text": ["segment1", "segment2", ...]}
-	var result struct {
-		Text []string `json:"text"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	// Parse response — whisper.cpp returns {"text": "..."} or {"text": ["...", ...]}
+	var rawResult map[string]json.RawMessage
+	if err := json.Unmarshal(respBody, &rawResult); err != nil {
 		return "", fmt.Errorf("failed to parse transcription response: %v", err)
 	}
 
-	// Join text segments
-	text := strings.Join(result.Text, "")
+	var text string
+	if rawText, ok := rawResult["text"]; ok {
+		// Try array first, then fall back to string
+		var arr []string
+		if err := json.Unmarshal(rawText, &arr); err == nil {
+			text = strings.Join(arr, "")
+		} else {
+			if err := json.Unmarshal(rawText, &text); err != nil {
+				return "", fmt.Errorf("failed to parse transcription text: %v", err)
+			}
+		}
+	}
 
 	log.Printf("[VOICE] Transcription successful (whispercpp): %d chars", len(text))
 	return text, nil

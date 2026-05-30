@@ -333,6 +333,37 @@ func TestCheckWhisper(t *testing.T) {
 		}
 	})
 
+	t.Run("whispercpp transcription returns text from string response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"text": "Hello world"})
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: server.URL,
+				APIKey:   "test-key",
+			},
+			Voice: config.VoiceConfig{
+				WhisperURL:  server.URL,
+				WhisperType: "whispercpp",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Send a silent WAV as audio data
+		_, err := client.Transcribe(ctx, []byte{})
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+		}
+	})
+
 	t.Run("whispercpp transcription returns text from array response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")

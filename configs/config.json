@@ -15,9 +15,8 @@
     "system_prompt": ""
   },
   "voice": {
-    "whisper_url": "",
-    "whisper_type": "openai",
-    "whisper_model": "whisper-1"
+    "whisper_url": "http://192.168.8.5:8085",
+    "whisper_type": "whispercpp"
   },
   "mcp": {
     "servers": []
