@@ -343,7 +343,10 @@ func (c *Client) APIURL() string {
 // endpoint (OpenAI-compatible) and returns the transcribed text.
 // Uses the configured whisper model (default: whisper-1).
 func (c *Client) Transcribe(ctx context.Context, audioData []byte) (string, error) {
-	endpoint := c.cfg.LLM.Endpoint
+	endpoint := c.cfg.Voice.WhisperURL
+	if endpoint == "" {
+		endpoint = c.cfg.LLM.Endpoint
+	}
 	model := c.cfg.Voice.WhisperModel
 	if model == "" {
 		model = "whisper-1"

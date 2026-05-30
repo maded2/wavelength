@@ -135,6 +135,10 @@ Example configuration:
   "persona": {
     "system_prompt": ""
   },
+  "voice": {
+    "whisper_url": "",
+    "whisper_model": "whisper-1"
+  },
   "mcp": {
     "servers": []
   },
@@ -149,6 +153,7 @@ Example configuration:
 | `persona.system_prompt` | Custom system prompt (uses sensible default if empty) |
 | `mcp.servers` | Array of MCP server configs (see [MCP Support](#mcp-support)) |
 | `voice.enabled` | `true` = force enable, `false` = disable, `null`/omitted = auto-detect (default) |
+| `voice.whisper_url` | Base URL for the transcription API (default: uses `llm.endpoint`) |
 | `voice.whisper_model` | Model name for transcription (default: `whisper-1`) |
 
 **Required fields**: `server.port`, `llm.provider`, `llm.model`, `llm.endpoint`, `llm.api_key`, `data_dir`. Missing fields cause a startup error with a descriptive message.
@@ -297,6 +302,7 @@ At startup, Wavelength probes the LLM endpoint to check if `/v1/audio/transcript
 {
   "voice": {
     "enabled": true,
+    "whisper_url": "https://api.openai.com/v1",
     "whisper_model": "whisper-1"
   }
 }
@@ -305,6 +311,7 @@ At startup, Wavelength probes the LLM endpoint to check if `/v1/audio/transcript
 | Field | Description |
 |---|---|
 | `voice.enabled` | `true` = force enable, `false` = disable, `null`/omitted = auto-detect at startup |
+| `voice.whisper_url` | Base URL for the transcription API. If empty, defaults to `llm.endpoint`. The path `/v1/audio/transcriptions` is appended automatically |
 | `voice.whisper_model` | Model name sent to the transcription API (default: `whisper-1`) |
 
 ### API

@@ -15,6 +15,7 @@
     "system_prompt": ""
   },
   "voice": {
+    "whisper_url": "",
     "whisper_model": "whisper-1"
   },
   "mcp": {

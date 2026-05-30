@@ -170,6 +170,10 @@ type VoiceConfig struct {
 	// the server auto-detects by probing the LLM endpoint's /v1/audio/transcriptions.
 	Enabled *bool `json:"enabled,omitempty"`
 
+	// WhisperURL is the base URL for the transcription API.
+	// If empty, defaults to llm.endpoint (appending /v1/audio/transcriptions).
+	WhisperURL string `json:"whisper_url,omitempty"`
+
 	// WhisperModel is the model name sent to the transcription API.
 	// Default: "whisper-1". Use whatever your LLM endpoint supports.
 	WhisperModel string `json:"whisper_model,omitempty"`
