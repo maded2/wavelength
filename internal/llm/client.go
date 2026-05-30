@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -19,6 +20,8 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"github.com/go-audio/audio"
+	"github.com/go-audio/wav"
 
 	"wavelength/internal/config"
 )
@@ -460,25 +463,45 @@ func (c *Client) transcribeOpenAI(ctx context.Context, endpoint string, audioDat
 // transcribeWhisperCPP sends audio to a whisper.cpp /inference endpoint.
 // Converts the audio to WAV format first, as whisper.cpp requires WAV input.
 func (c *Client) transcribeWhisperCPP(ctx context.Context, endpoint string, audioData []byte, timeout time.Duration) (string, error) {
-	// Create a temporary file for the original audio
-	tmpFile, err := os.CreateTemp("", "voice-*.webm")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name())
+	var wavFile string
+	var tmpFile *os.File
+	var err error
 
-	if _, err := tmpFile.Write(audioData); err != nil {
+	// Check if the audio is already a WAV (from CheckWhisper test)
+	if isWAV(audioData) {
+		// Already WAV, use it directly
+		tmpFile, err = os.CreateTemp("", "voice-*.wav")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+
+		if _, err := tmpFile.Write(audioData); err != nil {
+			tmpFile.Close()
+			return "", fmt.Errorf("failed to write audio data: %v", err)
+		}
 		tmpFile.Close()
-		return "", fmt.Errorf("failed to write audio data: %v", err)
-	}
-	tmpFile.Close()
+		wavFile = tmpFile.Name()
+	} else {
+		// Convert to WAV using ffmpeg (whisper.cpp requires WAV)
+		tmpFile, err = os.CreateTemp("", "voice-*.webm")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
 
-	// Convert to WAV using ffmpeg (whisper.cpp requires WAV)
-	wavFile, err := convertToWAV(ctx, tmpFile.Name())
-	if err != nil {
-		return "", fmt.Errorf("failed to convert audio to WAV: %v", err)
+		if _, err := tmpFile.Write(audioData); err != nil {
+			tmpFile.Close()
+			return "", fmt.Errorf("failed to write audio data: %v", err)
+		}
+		tmpFile.Close()
+
+		wavFile, err = convertToWAV(ctx, tmpFile.Name())
+		if err != nil {
+			return "", fmt.Errorf("failed to convert audio to WAV: %v", err)
+		}
+		defer os.Remove(wavFile)
 	}
-	defer os.Remove(wavFile)
 
 	// Build multipart form
 	body := &bytes.Buffer{}
@@ -559,6 +582,11 @@ func (c *Client) transcribeWhisperCPP(ctx context.Context, endpoint string, audi
 	return text, nil
 }
 
+// isWAV checks if the audio data is a WAV file by checking the RIFF header.
+func isWAV(data []byte) bool {
+	return len(data) >= 4 && string(data[0:4]) == "RIFF"
+}
+
 // convertToWAV converts an audio file to WAV format using ffmpeg.
 // whisper.cpp requires WAV input, so this converts WebM/Opus from the browser.
 func convertToWAV(ctx context.Context, inputFile string) (string, error) {
@@ -584,10 +612,10 @@ func convertToWAV(ctx context.Context, inputFile string) (string, error) {
 }
 
 // CheckWhisper verifies that the LLM endpoint supports audio transcription.
-// Sends a minimal 1-second silent WAV to test the /v1/audio/transcriptions endpoint.
+// Sends a minimal 1-second beep WAV to test the endpoint.
 func (c *Client) CheckWhisper(ctx context.Context) error {
-	// Generate a minimal valid WAV file (1 second, 16kHz, mono, 16-bit, silent)
-	wavData := generateSilentWAV(16000, 1)
+	// Generate a minimal valid WAV file with a beep tone (1 second, 16kHz, mono, 16-bit)
+	wavData := generateBeepWAV(16000, 1, 440)
 
 	_, err := c.Transcribe(ctx, wavData)
 	// The transcription may return empty text for silence, which is fine.
@@ -598,55 +626,59 @@ func (c *Client) CheckWhisper(ctx context.Context) error {
 	return nil
 }
 
-// generateSilentWAV creates a minimal valid WAV file with silence.
+// generateBeepWAV creates a minimal valid WAV file with a sine wave beep tone using go-audio/wav.
 // sampleRate: samples per second (e.g., 16000)
 // durationSec: duration in seconds
-func generateSilentWAV(sampleRate int, durationSec int) []byte {
+// frequency: frequency of the beep in Hz (e.g., 440)
+func generateBeepWAV(sampleRate int, durationSec int, frequency int) []byte {
 	numSamples := sampleRate * durationSec
-	bitsPerSample := 16
-	byteRate := sampleRate * (bitsPerSample / 8)
-	dataSize := numSamples * (bitsPerSample / 8)
-	riffSize := 36 + dataSize
 
-	buf := &bytes.Buffer{}
-
-	// RIFF header
-	buf.WriteString("RIFF")
-	writeLE32(buf, riffSize)
-	buf.WriteString("WAVE")
-
-	// fmt chunk
-	buf.WriteString("fmt ")
-	writeLE32(buf, 16) // chunk size
-	writeLE16(buf, 1)  // audio format (PCM)
-	writeLE16(buf, 1)  // num channels (mono)
-	writeLE32(buf, sampleRate)
-	writeLE32(buf, byteRate)
-	writeLE16(buf, bitsPerSample/8) // block align
-	writeLE16(buf, bitsPerSample)
-
-	// data chunk
-	buf.WriteString("data")
-	writeLE32(buf, dataSize)
-
-	// Silent samples
-	buf.Bytes()
-	buf.Grow(dataSize)
-	for i := 0; i < dataSize; i++ {
-		buf.WriteByte(0)
+	// Generate sine wave samples as int16
+	int16Samples := make([]int16, numSamples)
+	for i := 0; i < numSamples; i++ {
+		phase := float64(i) * 2 * math.Pi * float64(frequency) / float64(sampleRate)
+		int16Samples[i] = int16(16384 * math.Sin(phase)) // ~50% amplitude
 	}
 
-	return buf.Bytes()
-}
+	// Convert to audio.IntBuffer (go-audio uses int, not int16)
+	intSamples := make([]int, numSamples)
+	for i, s := range int16Samples {
+		intSamples[i] = int(s)
+	}
 
-func writeLE16(buf *bytes.Buffer, v int) {
-	buf.WriteByte(byte(v))
-	buf.WriteByte(byte(v >> 8))
-}
+	audioBuf := &audio.IntBuffer{
+		Format: &audio.Format{
+			NumChannels: 1,
+			SampleRate:  sampleRate,
+		},
+		Data:           intSamples,
+		SourceBitDepth: 16,
+	}
 
-func writeLE32(buf *bytes.Buffer, v int) {
-	buf.WriteByte(byte(v))
-	buf.WriteByte(byte(v >> 8))
-	buf.WriteByte(byte(v >> 16))
-	buf.WriteByte(byte(v >> 24))
+	// Create a temp file for the encoder (needs io.WriteSeeker)
+	tmpFile, err := os.CreateTemp("", "voice-check-*.wav")
+	if err != nil {
+		log.Printf("[VOICE] failed to create temp WAV file: %v", err)
+		return nil
+	}
+	defer os.Remove(tmpFile.Name())
+
+	// 1 = PCM (linear) audio format
+	enc := wav.NewEncoder(tmpFile, sampleRate, 16, 1, 1)
+	if err := enc.Write(audioBuf); err != nil {
+		log.Printf("[VOICE] failed to encode WAV: %v", err)
+		tmpFile.Close()
+		return nil
+	}
+	enc.Close()
+	tmpFile.Close()
+
+	// Read the WAV file back
+	wavData, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		log.Printf("[VOICE] failed to read WAV file: %v", err)
+		return nil
+	}
+
+	return wavData
 }
