@@ -16,6 +16,7 @@
   },
   "voice": {
     "whisper_url": "",
+    "whisper_type": "openai",
     "whisper_model": "whisper-1"
   },
   "mcp": {

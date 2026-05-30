@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -339,14 +340,35 @@ func (c *Client) APIURL() string {
 	return c.cfg.LLM.Endpoint + c.APIPath()
 }
 
-// Transcribe sends audio data to the LLM endpoint's /v1/audio/transcriptions
-// endpoint (OpenAI-compatible) and returns the transcribed text.
-// Uses the configured whisper model (default: whisper-1).
+// Transcribe sends audio data to the configured transcription endpoint and returns the transcribed text.
+// Supports two server types:
+//   - "openai" (default): OpenAI-compatible /v1/audio/transcriptions endpoint with Bearer auth
+//   - "whispercpp": whisper.cpp /inference endpoint with no auth and array-style JSON response
 func (c *Client) Transcribe(ctx context.Context, audioData []byte) (string, error) {
 	endpoint := c.cfg.Voice.WhisperURL
 	if endpoint == "" {
 		endpoint = c.cfg.LLM.Endpoint
 	}
+	whisperType := c.cfg.Voice.WhisperType
+	if whisperType == "" {
+		whisperType = "openai"
+	}
+
+	timeout := time.Duration(c.cfg.LLM.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+
+	switch whisperType {
+	case "whispercpp":
+		return c.transcribeWhisperCPP(ctx, endpoint, audioData, timeout)
+	default:
+		return c.transcribeOpenAI(ctx, endpoint, audioData, timeout)
+	}
+}
+
+// transcribeOpenAI sends audio to an OpenAI-compatible /v1/audio/transcriptions endpoint.
+func (c *Client) transcribeOpenAI(ctx context.Context, endpoint string, audioData []byte, timeout time.Duration) (string, error) {
 	model := c.cfg.Voice.WhisperModel
 	if model == "" {
 		model = "whisper-1"
@@ -406,11 +428,6 @@ func (c *Client) Transcribe(ctx context.Context, audioData []byte) (string, erro
 	req.Header.Set("Authorization", "Bearer "+c.cfg.LLM.APIKey)
 
 	// Execute request
-	timeout := time.Duration(c.cfg.LLM.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = 60 * time.Second
-	}
-
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -435,8 +452,94 @@ func (c *Client) Transcribe(ctx context.Context, audioData []byte) (string, erro
 		return "", fmt.Errorf("failed to parse transcription response: %v", err)
 	}
 
-	log.Printf("[VOICE] Transcription successful: %d chars", len(result.Text))
+	log.Printf("[VOICE] Transcription successful (openai): %d chars", len(result.Text))
 	return result.Text, nil
+}
+
+// transcribeWhisperCPP sends audio to a whisper.cpp /inference endpoint.
+func (c *Client) transcribeWhisperCPP(ctx context.Context, endpoint string, audioData []byte, timeout time.Duration) (string, error) {
+	// Create a temporary file for the multipart upload
+	tmpFile, err := os.CreateTemp("", "voice-*.webm")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write(audioData); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("failed to write audio data: %v", err)
+	}
+	tmpFile.Close()
+
+	// Build multipart form
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Add the file
+	fileWriter, err := writer.CreateFormFile("file", filepath.Base(tmpFile.Name()))
+	if err != nil {
+		writer.Close()
+		return "", fmt.Errorf("failed to create form file: %v", err)
+	}
+
+	file, err := os.Open(tmpFile.Name())
+	if err != nil {
+		writer.Close()
+		return "", fmt.Errorf("failed to open temp file: %v", err)
+	}
+	defer file.Close()
+
+	if _, err := io.Copy(fileWriter, file); err != nil {
+		writer.Close()
+		return "", fmt.Errorf("failed to copy file data: %v", err)
+	}
+
+	// Add response_format field
+	if err := writer.WriteField("response_format", "json"); err != nil {
+		writer.Close()
+		return "", fmt.Errorf("failed to write response_format field: %v", err)
+	}
+
+	writer.Close()
+
+	// Create HTTP request — whisper.cpp uses /inference, no auth
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint+"/inference", body)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// Execute request
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("transcription request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("whisper.cpp API error (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	// Parse response — whisper.cpp returns {"text": ["segment1", "segment2", ...]}
+	var result struct {
+		Text []string `json:"text"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to parse transcription response: %v", err)
+	}
+
+	// Join text segments
+	text := strings.Join(result.Text, "")
+
+	log.Printf("[VOICE] Transcription successful (whispercpp): %d chars", len(text))
+	return text, nil
 }
 
 // CheckWhisper verifies that the LLM endpoint supports audio transcription.

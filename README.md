@@ -137,6 +137,7 @@ Example configuration:
   },
   "voice": {
     "whisper_url": "",
+    "whisper_type": "openai",
     "whisper_model": "whisper-1"
   },
   "mcp": {
@@ -154,7 +155,8 @@ Example configuration:
 | `mcp.servers` | Array of MCP server configs (see [MCP Support](#mcp-support)) |
 | `voice.enabled` | `true` = force enable, `false` = disable, `null`/omitted = auto-detect (default) |
 | `voice.whisper_url` | Base URL for the transcription API (default: uses `llm.endpoint`) |
-| `voice.whisper_model` | Model name for transcription (default: `whisper-1`) |
+| `voice.whisper_type` | Server type: `openai` (default) or `whispercpp` |
+| `voice.whisper_model` | Model name for transcription (default: `whisper-1`, ignored for whispercpp) |
 
 **Required fields**: `server.port`, `llm.provider`, `llm.model`, `llm.endpoint`, `llm.api_key`, `data_dir`. Missing fields cause a startup error with a descriptive message.
 
@@ -303,6 +305,7 @@ At startup, Wavelength probes the LLM endpoint to check if `/v1/audio/transcript
   "voice": {
     "enabled": true,
     "whisper_url": "https://api.openai.com/v1",
+    "whisper_type": "openai",
     "whisper_model": "whisper-1"
   }
 }
@@ -311,8 +314,23 @@ At startup, Wavelength probes the LLM endpoint to check if `/v1/audio/transcript
 | Field | Description |
 |---|---|
 | `voice.enabled` | `true` = force enable, `false` = disable, `null`/omitted = auto-detect at startup |
-| `voice.whisper_url` | Base URL for the transcription API. If empty, defaults to `llm.endpoint`. The path `/v1/audio/transcriptions` is appended automatically |
-| `voice.whisper_model` | Model name sent to the transcription API (default: `whisper-1`) |
+| `voice.whisper_url` | Base URL for the transcription API. If empty, defaults to `llm.endpoint` |
+| `voice.whisper_type` | Server type: `openai` (default) uses `/v1/audio/transcriptions` with Bearer auth; `whispercpp` uses `/inference` with no auth |
+| `voice.whisper_model` | Model name sent to the transcription API (default: `whisper-1`, ignored for whispercpp) |
+
+### Whisper.cpp Support
+
+Wavelength supports [whisper.cpp](https://github.com/ggerganov/whisper.cpp) servers. Configure it with `whisper_type: "whispercpp"`:
+
+```json
+{
+  "voice": {
+    "whisper_url": "http://192.168.8.5:8085",
+    "whisper_type": "whispercpp"
+  }
+}
+```n
+The whisper.cpp server uses its `/inference` endpoint with no authentication. Text segments from the response are joined to produce the final transcription.
 
 ### API
 

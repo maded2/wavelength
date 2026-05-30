@@ -292,6 +292,103 @@ func TestCheckWhisper(t *testing.T) {
 			t.Errorf("expected path /v1/audio/transcriptions on whisper server, got %s", receivedPath)
 		}
 	})
+
+	t.Run("whisper check succeeds with whispercpp server type", func(t *testing.T) {
+		var receivedPath string
+		var hasAuth bool
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedPath = r.URL.Path
+			hasAuth = r.Header.Get("Authorization") != ""
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"text": []string{"hello world"}})
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: "http://localhost:59999",
+				APIKey:   "test-key",
+			},
+			Voice: config.VoiceConfig{
+				WhisperURL:  server.URL,
+				WhisperType: "whispercpp",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		err := client.CheckWhisper(ctx)
+		if err != nil {
+			t.Errorf("expected no error for whispercpp endpoint, got: %v", err)
+		}
+		if receivedPath != "/inference" {
+			t.Errorf("expected path /inference, got %s", receivedPath)
+		}
+		if hasAuth {
+			t.Error("whispercpp should not send Authorization header")
+		}
+	})
+
+	t.Run("whispercpp transcription returns text from array response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"text": []string{"Hello", " world"},
+			})
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: server.URL,
+				APIKey:   "test-key",
+			},
+			Voice: config.VoiceConfig{
+				WhisperURL:  server.URL,
+				WhisperType: "whispercpp",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Send a silent WAV as audio data
+		_, err := client.Transcribe(ctx, []byte{})
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("whispercpp fails when endpoint is unreachable", func(t *testing.T) {
+		cfg := &config.Config{
+			LLM: config.LLMConfig{
+				Provider: "openai",
+				Model:    "gpt-4",
+				Endpoint: "http://localhost:59999",
+				APIKey:   "test-key",
+			},
+			Voice: config.VoiceConfig{
+				WhisperURL:  "http://localhost:59998",
+				WhisperType: "whispercpp",
+			},
+		}
+
+		client := llm.NewClient(cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		err := client.CheckWhisper(ctx)
+		if err == nil {
+			t.Error("expected error for unreachable whispercpp endpoint, got nil")
+		}
+	})
 }
 
 func TestLLMClientStreamResponse(t *testing.T) {

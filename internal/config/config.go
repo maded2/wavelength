@@ -171,11 +171,16 @@ type VoiceConfig struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// WhisperURL is the base URL for the transcription API.
-	// If empty, defaults to llm.endpoint (appending /v1/audio/transcriptions).
+	// If empty, defaults to llm.endpoint.
 	WhisperURL string `json:"whisper_url,omitempty"`
 
+	// WhisperType is the transcription server type: "openai" (default) or "whispercpp".
+	// "openai" uses /v1/audio/transcriptions with Bearer auth.
+	// "whispercpp" uses /inference with no auth and array-style JSON response.
+	WhisperType string `json:"whisper_type,omitempty"`
+
 	// WhisperModel is the model name sent to the transcription API.
-	// Default: "whisper-1". Use whatever your LLM endpoint supports.
+	// Default: "whisper-1". Ignored for whispercpp type.
 	WhisperModel string `json:"whisper_model,omitempty"`
 }
 
