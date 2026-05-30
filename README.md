@@ -20,7 +20,7 @@ Wavelength is a standalone web application that uses a configurable LLM backend 
 - **Context management** — Automatic conversation summarization for long interviews to stay within LLM context windows
 - **Configurable LLM backend** — Swap providers, models, and endpoints via a single JSON config file — no code changes needed
 - **MCP tool integration** — Connect to external MCP servers (stdio or SSE transport) to give the AI agent access to additional tools like filesystem access, web search, databases, and more
-- **Voice input** — Dictate messages via microphone; audio is transcribed by the LLM endpoint's Whisper API (`/v1/audio/transcriptions`). Auto-detected at startup — no extra config needed.
+- **Voice input** — Dictate messages via microphone; audio is transcribed by a Whisper endpoint. Supports both OpenAI-compatible (`/v1/audio/transcriptions`) and [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (`/inference`) servers. Auto-detected at startup, status shown on the landing page.
 - **Standalone binary** — No databases, no message queues, no external infrastructure. File-based persistence with atomic writes and file locking.
 
 ## Tech Stack
@@ -275,7 +275,12 @@ Type these in the chat input:
 
 ## Voice Input
 
-Wavelength supports dictating messages via microphone. Audio is transcribed by sending it to your LLM endpoint's `/v1/audio/transcriptions` API (OpenAI-compatible Whisper endpoint).
+Wavelength supports dictating messages via microphone. Audio is transcribed by sending it to a configured Whisper endpoint. Two server types are supported:
+
+| Server Type | Endpoint | Auth | Config |
+|---|---|---|---|
+| **OpenAI-compatible** | `/v1/audio/transcriptions` | Bearer token | `whisper_type: "openai"` (default) |
+| **whisper.cpp** | `/inference` | None | `whisper_type: "whispercpp"` |
 
 ### How It Works
 
@@ -286,14 +291,15 @@ Wavelength supports dictating messages via microphone. Audio is transcribed by s
 
 ### Requirements
 
-- Your LLM endpoint must support the OpenAI-compatible `/v1/audio/transcriptions` endpoint (e.g., OpenAI API, Open WebUI, LiteLLM with Whisper, vLLM with Whisper)
+- A Whisper endpoint (OpenAI API, Open WebUI, LiteLLM with Whisper, vLLM with Whisper, or [whisper.cpp](https://github.com/ggerganov/whisper.cpp))
 - Browser must support `getUserMedia` (Chrome, Firefox, Edge, Safari)
 - Microphone access must be granted when the browser prompts
+- For whisper.cpp: `ffmpeg` must be installed on the server (used to convert browser audio to WAV)
 
 ### Auto-Detection
 
-At startup, Wavelength probes the LLM endpoint to check if `/v1/audio/transcriptions` is available:
-- **Available** → 🎤 button is active, voice input enabled
+At startup, Wavelength probes the configured Whisper endpoint to check availability:
+- **Available** → 🎤 button is active, voice input enabled, status shown on landing page
 - **Not available** → 🎤 button is grayed out with tooltip explaining why
 - **Explicitly disabled** → Set `voice.enabled: false` in config to always disable
 
